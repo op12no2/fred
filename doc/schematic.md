@@ -14,7 +14,8 @@ kick in.
 |------|----|------|-------|
 | Pack + / − | DRV8833 VIN / GND | red / black | motor power, direct |
 | Pack + / − | ESP32 5V / GND pins | red / black | onboard LDO makes 3.3 V |
-| Capacitor + / − | ESP32 5V / GND pins | — | fit close to the pins; observe polarity |
+| Electro. capacitor + / − | ESP32 5V / GND pins | — | fit close to the pins; observe polarity |
+| 100 nF capacitor | motor terminals | - | |
 | ESP32 GPIO4 | DRV8833 AIN1 | any | left motor PWM |
 | ESP32 GPIO5 | DRV8833 AIN2 | any | left motor PWM |
 | ESP32 GPIO6 | DRV8833 BIN1 | any | right motor PWM |
@@ -59,3 +60,5 @@ kick in.
 - **USB + battery.** The DevKitC-1's USB 5 V comes in through a diode, so
   having USB and the pack connected at the same time is fine — handy for
   flashing while installed.
+- **Noise.** Twist the wires to each motor and from the pack to the driver.
+

@@ -12,6 +12,8 @@ alkaline, so less voltage sag when the motors kick in).
 
 Electrolytic capacitor, 470-1000uF 10V+, across the ESP32 5V/GND.
 
+2 off 100nF capacitor (across motor terminals).
+
 Adafruit AMG8833 IR Thermal Camera Breakout (STEMMA QT)
 https://thepihut.com/products/adafruit-amg8833-ir-thermal-camera-breakout
 
