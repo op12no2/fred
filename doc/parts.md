@@ -1,3 +1,5 @@
+# Fred - parts list
+
 2 off TT Motor Bi-Metal Gearbox - 1:90 Gear Ratio
 https://thepihut.com/products/tt-motor-bi-metal-gearbox-1-90-gear-ratio
 
@@ -33,6 +35,9 @@ https://thepihut.com/products/octagon-chassis-frame-blue-plastic-16cm-x-16cm-x-4
 
 ESP32-S3-DevKitC-1 Development Board
 https://thepihut.com/products/esp32-s3-devkitc-1-development-board
+
+Panel Mount Extension USB Cable - Micro-USB Male to Female
+https://thepihut.com/products/panel-mount-extension-usb-cable-micro-b-male-to-micro-b-female
 
 Misc M3 screws and bolts.
 

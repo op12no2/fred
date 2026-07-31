@@ -9,7 +9,7 @@ Fred is a small robot: he spins slowly until he senses heat (via an AMG8833 8x8 
 ## Layout
 
 - `firmware/` — ESP-IDF project (target: esp32s3). All application code is in `firmware/main/firmware_main.c`, a single C file.
-- `doc/schematic.md` — wiring and GPIO assignments; `doc/parts.md` — parts list.
+- `doc/schematic.md` — wiring and GPIO assignments; `doc/parts.md` — parts list; `doc/firmware.md` — heat-seeking algorithm design and open wrinkles.
 
 ## Build and flash
 
