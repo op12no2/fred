@@ -7,12 +7,17 @@ https://thepihut.com/products/pololu-drv8833-dual-motor-driver-carrier
 4 x AA Battery Holder with On/Off Switch
 https://thepihut.com/products/4-x-aa-battery-holder-with-on-off-switch
 
-4 off AA NiMH rechargeable batteries (lower internal resistance than
-alkaline, so less voltage sag when the motors kick in).
+4 off AA NiMH rechargeable batteries.
 
-Electrolytic capacitor, 470-1000uF 10V+, across the ESP32 5V/GND.
+Veroboard (stripboard).
 
-2 off 100nF capacitor (across motor terminals).
+Tinned copper wire.
+
+Electrolytic capacitor, 470-1000uF 10V+.
+
+Electrolytic capacitor, 100uF 10V+.
+
+2 off 100nF capacitor.
 
 Adafruit AMG8833 IR Thermal Camera Breakout (STEMMA QT)
 https://thepihut.com/products/adafruit-amg8833-ir-thermal-camera-breakout
@@ -30,3 +35,7 @@ ESP32-S3-DevKitC-1 Development Board
 https://thepihut.com/products/esp32-s3-devkitc-1-development-board
 
 Misc M3 screws and bolts.
+
+## Notes
+
+- Think about a VL53Lxx-family ToF proximity sensor too.

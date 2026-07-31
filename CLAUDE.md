@@ -40,3 +40,5 @@ Keep `doc/schematic.md` and the `#define`s in `firmware_main.c` in sync if pins 
 
 - The firmware uses the newer `driver/i2c_master.h` API (esp_driver_i2c component), not the legacy I2C driver.
 - AMG8833 pixels are 12-bit two's complement, 0.25 °C per LSB, 64 pixels read from register 0x80.
+- Fred is the first in N robots, each evolving from the last.
+
