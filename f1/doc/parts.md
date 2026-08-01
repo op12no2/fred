@@ -1,22 +1,37 @@
 # Fred - parts list
 
-2 off Pololu DRV8833 Dual Motor Driver Carrier
+2 off TT Motor Bi-Metal Gearbox - 1:90 Gear Ratio
+https://thepihut.com/products/tt-motor-bi-metal-gearbox-1-90-gear-ratio
+
+Pololu DRV8833 Dual Motor Driver Carrier
 https://thepihut.com/products/pololu-drv8833-dual-motor-driver-carrier
 
-2 off Electrolytic capacitor, 100uF 16V+ (one across each DRV8833 VIN).
+4 x AA Battery Holder with On/Off Switch
+https://thepihut.com/products/4-x-aa-battery-holder-with-on-off-switch
 
-4 off 100nF capacitor (one across each motor).
+4 off AA NiMH rechargeable batteries.
 
 Veroboard (stripboard).
 
 Tinned copper wire.
 
-XT60 pigtails: 2 off male, 1 off female (battery lead + pull-loop power key).
+Electrolytic capacitor, 470-1000uF 10V+.
 
-Resistors for battery voltage divider: 100k + 47k.
+Electrolytic capacitor, 100uF 10V+.
+
+2 off 100nF capacitor.
 
 Adafruit AMG8833 IR Thermal Camera Breakout (STEMMA QT)
 https://thepihut.com/products/adafruit-amg8833-ir-thermal-camera-breakout
+
+20mm Height Metal Caster Bearing Wheel
+https://thepihut.com/products/20mm-height-metal-caster-bearing-wheel
+
+2 off Orange and Clear TT Motor Wheel for TT DC Gearbox Motor
+https://thepihut.com/products/orange-and-clear-tt-motor-wheel-for-tt-dc-gearbox-motor
+
+Octagon Chassis Frame - Blue Plastic - 16cm x 16cm x 4cm
+https://thepihut.com/products/octagon-chassis-frame-blue-plastic-16cm-x-16cm-x-4cm
 
 ESP32-S3-DevKitC-1 Development Board
 https://thepihut.com/products/esp32-s3-devkitc-1-development-board
@@ -24,24 +39,8 @@ https://thepihut.com/products/esp32-s3-devkitc-1-development-board
 Panel Mount Extension USB Cable - Micro-USB Male to Female
 https://thepihut.com/products/panel-mount-extension-usb-cable-micro-b-male-to-micro-b-female
 
-Adafruit Bicolor LED Square Pixel Matrix with I2C Backpack - Qwiic / STEMMA QT
-https://thepihut.com/products/adafruit-bicolor-led-square-pixel-matrix-with-i2c-backpack
+Misc M3 screws and bolts.
 
-SparkFun Qwiic Buzzer
-https://thepihut.com/products/sparkfun-qwiic-buzzer
+## Notes
 
-Adafruit VL53L4CD Time of Flight Distance Sensor - ~1 to 1300mm (STEMMA QT / Qwiic)
-https://thepihut.com/products/adafruit-vl53l4cd-time-of-flight-distance-sensor-1-to-1300mm-stemma-qt-qwiic
-
-3 off STEMMA QT / Qwiic JST-SH 4-pin Cable (100mm)
-https://thepihut.com/products/stemma-qt-qwiic-jst-sh-4-pin-cable-100mm-long
-
-Robot Chassis Kit NS
-https://thepihut.com/products/robot-chassis-kit-ns
-
-Gens Ace LiPo G-Tech 2S 7.4V 1000mAh 30C Soaring with XT60
-https://www.modelsport.co.uk/product/1361979
-
-Pololu 5V 2.5A Step-Down Voltage Regulator (D24V22F5)
-https://thepihut.com/products/pololu-5v-2-5a-step-down-voltage-regulator-d24v22f5
-
+- Think about a VL53Lxx-family ToF proximity sensor too.

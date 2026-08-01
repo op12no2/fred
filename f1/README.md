@@ -1,21 +1,11 @@
-# f1 — Fred
+# f1
 
-Fred spins slowly until he senses heat, then moves towards it; that's the
-core of him. Around that core: a face, a voice, a distance sense, and a
-radio.
+f1 spins slowly until he senses heat (an AMG8833 8x8 thermal camera),
+then moves towards it; that's it. The essential Fred: thermal eyes, two
+motors, one driver, nothing else.
 
-## Hardware
-
-- **Chassis:** Waveshare NS, four 6-9V TT motors paired per side (skid
-  steer), driven by two DRV8833s.
-- **Brain:** ESP32-S3-DevKitC-1.
-- **Senses & expression**, all on one I2C bus of STEMMA QT/Qwiic boards:
-  AMG8833 8x8 thermal camera (the eyes), VL53L4CD time-of-flight (one
-  downward-tilted beam: floor / obstacle / cliff), bicolor 8x8 LED matrix
-  (the face — it can mirror the thermal view, green to red), Qwiic Buzzer
-  (the voice).
-- **Power:** 2S LiPo through an XT60 pull-loop key; motors fed directly,
-  ESP32 via a 5V buck; battery voltage watched on an ADC divider.
+ESP32-S3-DevKitC-1 on the blue octagon chassis: two TT 1:90 gear motors
+and a caster through a single DRV8833, powered by a 4xAA NiMH pack.
 
 ## Docs
 
