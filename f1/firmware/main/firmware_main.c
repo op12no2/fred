@@ -15,6 +15,17 @@
 #define AMG_REG_INTC    0x03   /* interrupt control: 0x00 = disabled */
 #define AMG_REG_PIXELS  0x80   /* 64 pixels x 2 bytes, little-endian */
 
+/* Further devices on the same I2C bus, daisy-chained over STEMMA QT.
+   Addresses reserved here; no driver code yet. */
+#define TOF_I2C_ADDR    0x29   /* VL53L4CD time-of-flight, front, angled down */
+#define BUZZER_I2C_ADDR 0x34   /* SparkFun Qwiic Buzzer */
+#define MATRIX_I2C_ADDR 0x70   /* HT16K33 bicolor 8x8 LED matrix backpack */
+
+/* 2S LiPo monitor: 100k/47k divider, 8.4 V full -> 2.7 V at the pin.
+   ADC1 on purpose - ADC2 is unusable while the radio is active.
+   Treat ~6.6 V (3.3 V/cell) as empty: stop and complain. No driver yet. */
+#define VBAT_ADC_GPIO   1      /* ADC1_CH0 */
+
 #define SAMPLE_MS       1000
 
 static i2c_master_dev_handle_t amg;
