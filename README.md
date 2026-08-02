@@ -27,6 +27,11 @@ Protocol v0 (draft, until two members exist to argue about it):
   other by radio and *perform* the conversation aloud — chirps and faces
   — for the humans in the room.
 
+## Photos
+
+https://photos.app.goo.gl/y3BawrzCdSZkWBeVA
+
 ## License
 
 See [LICENSE](./LICENSE).
+
