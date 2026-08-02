@@ -1,4 +1,4 @@
-# Fred - parts list
+# f1 - parts list
 
 2 off TT Motor Bi-Metal Gearbox - 1:90 Gear Ratio
 https://thepihut.com/products/tt-motor-bi-metal-gearbox-1-90-gear-ratio
@@ -11,7 +11,15 @@ https://thepihut.com/products/4-x-aa-battery-holder-with-on-off-switch
 
 4 off AA NiMH rechargeable batteries.
 
-Veroboard (stripboard).
+Veroboard (stripboard) — two pieces: power board (cavity) and ESP32 board
+(shelf).
+
+Plastic sheet for the shelf.
+
+M3 standoffs/posts, cavity to shelf.
+
+2 off M2.5 6mm standoffs for the AMG8833 (longer if its view needs
+clearing).
 
 Tinned copper wire.
 

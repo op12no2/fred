@@ -1,24 +1,34 @@
-# Fred — wiring schematic
+# f1 — wiring schematic
 
-Single-board veroboard layout on the octagon chassis, board mounted
-longitudinally: **ESP32-S3 at the front** (with the AMG8833 beside it),
-**DRV8833 at the back** near the motors, maximising the distance between the
-sensor/I2C end and the motor end. The switched 4xAA NiMH pack (~4.8-5.6 V)
-sits on top and feeds both directly — the pack voltage suits the 3-6 V TT
-motors as-is, and the DevKit's onboard LDO makes 3.3 V from it, so there is
-no separate regulator.
+Two-level layout on the octagon chassis. The **cavity holds everything
+power**: the switched 4xAA NiMH pack (~4.8-5.6 V, central and slightly aft
+for balance), the motors, and at the back a small power veroboard carrying
+the DRV8833 and the supply rails. The **ESP32-S3 veroboard rides above the
+cavity** on posts, mounted to a small plastic shelf, in full view. The
+**AMG8833 hangs off the front outside** on 6 mm standoffs (extendable if its
+view needs clearing). The pack feeds everything directly — the pack voltage
+suits the 3-6 V TT motors as-is, and the DevKit's onboard LDO makes 3.3 V
+from it, so there is no separate regulator.
+
+The split is the layout's best electrical feature: motor current never
+leaves the cavity, and the sensor/I2C end lives a level above it.
 
 ## Power rails
 
-Two veroboard strips at the **back** of the board serve as the 6V and GND
+Two strips on the **power veroboard in the cavity** serve as the 6V and GND
 rails; everything taps power from them.
 
-- **Tap ordering matters.** The pack leads enter the rails at the very back,
-  with the DRV8833's VIN/GND taps immediately adjacent. The ESP32's 5V/GND
-  taps sit further along the strips — never between the pack entry and the
-  driver taps. Motor current is the big, spiky load; this ordering keeps it
-  off any segment of strip the ESP32 shares, so it can't wobble the ESP32's
-  supply or ground reference through the strip's resistance.
+- **Tap ordering matters.** The pack leads enter the rails at one end, with
+  the DRV8833's VIN/GND taps immediately adjacent. The ESP32's feed taps sit
+  further along the strips — never between the pack entry and the driver
+  taps. Motor current is the big, spiky load; this ordering keeps it off any
+  segment of strip the ESP32 shares, so it can't wobble the ESP32's supply
+  or ground reference through the strip's resistance.
+- **The ESP32 feed is a twisted pair up a post.** From its rail taps, run
+  5V/GND as one twisted red/black pair up to the shelf board. Twisting keeps
+  the loop area small so the pair neither radiates nor picks much up, and
+  the run doubles as the ESP32's only ground reference — one pair, no second
+  ground path.
 - **Beef up the rails.** A single veroboard strip is thin copper — marginal
   for two TT motors stalling. Flood the 6V and GND strips with solder or lay
   tinned copper wire along them, at minimum the segment between the pack
@@ -26,14 +36,20 @@ rails; everything taps power from them.
 
 ## Capacitors
 
-- **470-1000 µF electrolytic across the ESP32's 5V/GND taps.** Motor starts
-  and stalls yank the pack voltage down through the cells' internal
-  resistance; this cap rides through the dip and stops it resetting the
-  chip. Mount it right where the ESP32's power wires leave the rails, and
-  mind the polarity stripe.
-- **100 µF electrolytic across the rails at the pack entry / driver taps.**
-  A local reservoir for the motor current spikes, so they are served from
-  millimetres away instead of travelling the strips. Polarity again.
+Placement follows the two levels: the big cap goes **up on the shelf with
+the ESP32**, the reservoir stays **down in the cavity with the driver**.
+
+- **470-1000 µF electrolytic on the shelf board, where the twisted pair
+  lands.** Motor starts and stalls yank the pack voltage down through the
+  cells' internal resistance; this cap rides through the dip and stops it
+  resetting the chip. It must sit at the ESP32 end of the run — the riser
+  wires add resistance and inductance, and the cap only protects what's on
+  its own side of them. Down in the cavity it would do half the job. Mind
+  the polarity stripe.
+- **100 µF electrolytic across the rails at the pack entry / driver taps, in
+  the cavity.** A local reservoir for the motor current spikes, so they are
+  served from millimetres away instead of travelling the strips. Polarity
+  again.
 - **2 off 100 nF ceramic, one across each motor's terminals.** Kills brush
   noise at the source; a different job from the electrolytics, not replaced
   by them.
@@ -42,9 +58,9 @@ rails; everything taps power from them.
 
 | From | To | Wire | Notes |
 |------|----|------|-------|
-| Pack + / − | 6V / GND rails | red / black | enter at the back, next to the driver taps |
+| Pack + / − | 6V / GND rails | red / black | enter next to the driver taps |
 | 6V / GND rails | DRV8833 VIN / GND | red / black | immediately adjacent to pack entry |
-| 6V / GND rails | ESP32 5V / GND pins | red / black | onboard LDO makes 3.3 V |
+| 6V / GND rails | ESP32 5V / GND pins | red / black | twisted pair up to the shelf; onboard LDO makes 3.3 V |
 | ESP32 GPIO4 | DRV8833 AIN1 | any | left motor PWM |
 | ESP32 GPIO5 | DRV8833 AIN2 | any | left motor PWM |
 | ESP32 GPIO6 | DRV8833 BIN1 | any | right motor PWM |
@@ -71,9 +87,10 @@ rails; everything taps power from them.
 
 ## Notes
 
-- **Common ground.** The shared GND strip is the return for the five control
-  signals — with everything on one board no separate ground wire is needed
-  between the ESP32 and the driver.
+- **Common ground.** The GND half of the twisted pair is the return for the
+  five control signals between the shelf and the driver — no separate ground
+  wire. Bundle the five signal wires loosely and route them down alongside
+  the power pair.
 - **Sensor ground.** The AMG8833 grounds through its one black wire to the
   ESP32, nothing else. It draws ~5 mA and is entirely referenced to the
   ESP32; a second, direct run from the sensor to the GND rail would create a
@@ -89,5 +106,17 @@ rails; everything taps power from them.
 - **USB + battery.** The DevKitC-1's USB 5 V comes in through a diode, so
   having USB and the pack connected at the same time is fine — handy for
   flashing while installed.
-- **Noise.** Twist the wires to each motor, and route them away from the
-  AMG8833's I2C wiring at the front.
+- **Noise.** Twist the wires to each motor; they stay inside the cavity, a
+  level below the AMG8833's I2C run, which goes straight from the front
+  standoffs up to the shelf without entering the cavity.
+- **Sensor stays cool.** Mounting the AMG8833 outside on standoffs keeps it
+  out of the cavity's warm air (motors and driver both dissipate) — a
+  thermal camera reading its own waste heat sees a raised, flattened scene.
+  If its view is clipped by the chassis lip, extend the standoffs rather
+  than moving it inboard.
+- **Antenna.** Orient the DevKit so its antenna end overhangs the shelf
+  edge, pointing away from the battery below — the pack is the biggest RF
+  obstruction on the robot, and f1 will want ESP-NOW eventually.
+- **Strain relief.** The shelf-to-cavity runs flex when boards are lifted
+  for battery swaps; leave slack in the twisted pair and signal bundle, and
+  anchor them at both ends so the solder joints never take the load.
