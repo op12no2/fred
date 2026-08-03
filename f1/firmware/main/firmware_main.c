@@ -21,10 +21,13 @@
 #define AMG_REG_INTC    0x03   /* interrupt control: 0x00 = disabled */
 #define AMG_REG_PIXELS  0x80   /* 64 pixels x 2 bytes, little-endian */
 
-#define MOTOR_L_IN1_GPIO  4    /* DRV8833 AIN1 */
-#define MOTOR_L_IN2_GPIO  5    /* DRV8833 AIN2 */
-#define MOTOR_R_IN1_GPIO  6    /* DRV8833 BIN1 */
-#define MOTOR_R_IN2_GPIO  7    /* DRV8833 BIN2 */
+/* Deliberately scrambled vs the DRV8833 pin names: the A channel is
+ * soldered to the right motor and B to the left, and both motors have
+ * inverted polarity, so we un-cross and un-invert them here. */
+#define MOTOR_L_IN1_GPIO  7    /* DRV8833 BIN2 */
+#define MOTOR_L_IN2_GPIO  6    /* DRV8833 BIN1 */
+#define MOTOR_R_IN1_GPIO  5    /* DRV8833 AIN2 */
+#define MOTOR_R_IN2_GPIO  4    /* DRV8833 AIN1 */
 #define DRV_SLP_GPIO      10   /* DRV8833 nSLEEP: high = enabled */
 
 #define PWM_FREQ_HZ     25000  /* above audible, well under DRV8833's max */
@@ -215,6 +218,11 @@ void app_main(void)
     amg_init();
     ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 256, 0, 0, NULL, 0));
     print_help();
+
+    /* Default behaviour: spin in place until a console command takes over,
+     * so f1 can be tested untethered. */
+    drive(40, -40);
+    printf("motors: default spin, left 40 right -40 (s to stop)\n");
 
     char line[64];
     int len = 0;

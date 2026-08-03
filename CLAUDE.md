@@ -33,8 +33,8 @@ Each robot's `firmware/firmware.sh` captures this flash-and-monitor sequence. Th
 
 | GPIO | Function |
 |------|----------|
-| 4, 5 | left motor AIN1/AIN2 (PWM into DRV8833) |
-| 6, 7 | right motor BIN1/BIN2 (PWM into DRV8833) |
+| 4, 5 | AIN1/AIN2 — right motor, inverted (PWM into DRV8833) |
+| 6, 7 | BIN1/BIN2 — left motor, inverted (PWM into DRV8833) |
 | 8, 9 | I2C SDA/SCL to AMG8833 (addr 0x69) |
 | 10 | DRV8833 nSLEEP — drive high to enable the motor driver |
 

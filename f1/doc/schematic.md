@@ -70,17 +70,24 @@ the ESP32**, the reservoir stays **down in the cavity with the driver**.
 | ESP32 GND | AMG8833 GND | black | to the ESP32 only — see Notes |
 | ESP32 GPIO8 | AMG8833 SDA | blue | |
 | ESP32 GPIO9 | AMG8833 SCL | yellow | |
-| DRV8833 AOUT1/AOUT2 | left motor | red / black | swap to reverse direction |
-| DRV8833 BOUT1/BOUT2 | right motor | red / black | swap to reverse direction |
+| DRV8833 AOUT1/AOUT2 | right motor | red / black | soldered with polarity inverted |
+| DRV8833 BOUT1/BOUT2 | left motor | red / black | soldered with polarity inverted |
+
+The motors ended up soldered crossed and inverted: the A channel drives
+the right motor, the B channel the left, and both with inverted
+polarity. The firmware compensates: the `MOTOR_x_IN1_GPIO`/
+`MOTOR_x_IN2_GPIO` defines in `firmware_main.c` are deliberately
+scrambled relative to the DRV8833 AIN/BIN pin names above (left = 7/6,
+right = 5/4).
 
 ## GPIO summary
 
 | GPIO | Function |
 |------|----------|
-| 4 | left motor AIN1 (PWM) |
-| 5 | left motor AIN2 (PWM) |
-| 6 | right motor BIN1 (PWM) |
-| 7 | right motor BIN2 (PWM) |
+| 4 | AIN1 (PWM) — right motor, inverted |
+| 5 | AIN2 (PWM) — right motor, inverted |
+| 6 | BIN1 (PWM) — left motor, inverted |
+| 7 | BIN2 (PWM) — left motor, inverted |
 | 8 | I2C SDA (AMG8833) |
 | 9 | I2C SCL (AMG8833) |
 | 10 | DRV8833 sleep control |
@@ -106,6 +113,12 @@ the ESP32**, the reservoir stays **down in the cavity with the driver**.
 - **USB + battery.** The DevKitC-1's USB 5 V comes in through a diode, so
   having USB and the pack connected at the same time is fine — handy for
   flashing while installed.
+- **USB without battery.** With the pack switched off, that same diode
+  conducts the other way: USB 5 V lands on the 6V rail and powers the
+  DRV8833 and motors too. Fine for console and sensor work, but don't
+  run the motors like this — a stall pulls amps through a diode rated
+  for about one, and through the host's USB port. Habit: `z` (sleep the
+  driver) or `s` before switching the pack off with USB attached.
 - **Noise.** Twist the wires to each motor; they stay inside the cavity, a
   level below the AMG8833's I2C run, which goes straight from the front
   standoffs up to the shelf without entering the cavity.
