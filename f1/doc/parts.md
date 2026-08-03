@@ -32,6 +32,14 @@ Electrolytic capacitor, 100uF 10V+.
 Adafruit AMG8833 IR Thermal Camera Breakout (STEMMA QT)
 https://thepihut.com/products/adafruit-amg8833-ir-thermal-camera-breakout
 
+Adafruit INA219 High Side DC Current Sensor Breakout (STEMMA QT)
+https://thepihut.com/products/adafruit-ina219-high-side-dc-current-sensor-breakout-26v-3-2a-max
+
+Adafruit LSM6DSOX 6 DoF Accelerometer and Gyroscope (STEMMA QT)
+https://thepihut.com/products/adafruit-lsm6dsox-6-dof-accelerometer-and-gyroscope
+
+2 off STEMMA QT / Qwiic JST SH 4-pin cables for the sensor chain.
+
 20mm Height Metal Caster Bearing Wheel
 https://thepihut.com/products/20mm-height-metal-caster-bearing-wheel
 

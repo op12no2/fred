@@ -1,5 +1,6 @@
-/* firmware: Fred the robot. AMG8833 thermal camera + DRV8833 motors,
- * with a serial test console (type '?' in idf.py monitor). */
+/* firmware: Fred the robot. AMG8833 thermal camera, LSM6DSOX IMU and
+ * INA219 power monitor on one I2C bus, DRV8833 motors, and a serial
+ * test console (type '?' in idf.py monitor). */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +22,17 @@
 #define AMG_REG_INTC    0x03   /* interrupt control: 0x00 = disabled */
 #define AMG_REG_PIXELS  0x80   /* 64 pixels x 2 bytes, little-endian */
 
+#define INA_I2C_ADDR    0x40
+#define INA_REG_CONFIG  0x00   /* 0x399F = 32 V range, ±320 mV PGA, 12-bit */
+#define INA_REG_SHUNT   0x01   /* signed, 10 uV per LSB across the 0.1R shunt */
+#define INA_REG_BUS     0x02   /* bits 15..3, 4 mV per LSB */
+
+#define LSM_I2C_ADDR     0x6A
+#define LSM_REG_WHOAMI   0x0F  /* reads 0x6C */
+#define LSM_REG_CTRL1_XL 0x10  /* 0x40 = accel 104 Hz, ±2 g */
+#define LSM_REG_CTRL2_G  0x11  /* 0x44 = gyro 104 Hz, ±500 dps */
+#define LSM_REG_OUTX_L_G 0x22  /* 12 bytes: gyro xyz then accel xyz, LE */
+
 /* Deliberately scrambled vs the DRV8833 pin names: the A channel is
  * soldered to the right motor and B to the left, and both motors have
  * inverted polarity, so we un-cross and un-invert them here. */
@@ -39,16 +51,12 @@
 #define MOTOR_R_IN1_CH  LEDC_CHANNEL_2
 #define MOTOR_R_IN2_CH  LEDC_CHANNEL_3
 
-static i2c_master_dev_handle_t amg;
-static bool amg_ok;
+static i2c_master_dev_handle_t amg, ina, lsm;
+static bool amg_ok, ina_ok, lsm_ok;
 
-static esp_err_t amg_write_reg(uint8_t reg, uint8_t val)
-{
-    uint8_t buf[2] = { reg, val };
-    return i2c_master_transmit(amg, buf, sizeof(buf), 100);
-}
+static i2c_master_bus_handle_t i2c_bus;
 
-static void amg_init(void)
+static void i2c_init(void)
 {
     i2c_master_bus_config_t bus_cfg = {
         .i2c_port = -1,
@@ -58,15 +66,30 @@ static void amg_init(void)
         .glitch_ignore_cnt = 7,
         .flags.enable_internal_pullup = true,
     };
-    i2c_master_bus_handle_t bus = NULL;
-    ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &bus));
+    ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &i2c_bus));
+}
 
+static i2c_master_dev_handle_t i2c_add(uint8_t addr)
+{
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = AMG_I2C_ADDR,
+        .device_address = addr,
         .scl_speed_hz = 400 * 1000,
     };
-    ESP_ERROR_CHECK(i2c_master_bus_add_device(bus, &dev_cfg, &amg));
+    i2c_master_dev_handle_t dev = NULL;
+    ESP_ERROR_CHECK(i2c_master_bus_add_device(i2c_bus, &dev_cfg, &dev));
+    return dev;
+}
+
+static esp_err_t amg_write_reg(uint8_t reg, uint8_t val)
+{
+    uint8_t buf[2] = { reg, val };
+    return i2c_master_transmit(amg, buf, sizeof(buf), 100);
+}
+
+static void amg_init(void)
+{
+    amg = i2c_add(AMG_I2C_ADDR);
 
     /* Non-fatal: a missing sensor must not stop motor testing. */
     if (amg_write_reg(AMG_REG_PCTL, 0x00) != ESP_OK ||
@@ -99,6 +122,76 @@ static esp_err_t amg_read_mean(float *mean)
         sum += v;
     }
     *mean = sum * 0.25f / 64.0f;
+    return ESP_OK;
+}
+
+static esp_err_t ina_read_reg(uint8_t reg, uint16_t *val)
+{
+    uint8_t raw[2];
+    esp_err_t err = i2c_master_transmit_receive(ina, &reg, 1, raw, sizeof(raw), 100);
+    if (err != ESP_OK) {
+        return err;
+    }
+    *val = (raw[0] << 8) | raw[1];   /* registers are big-endian */
+    return ESP_OK;
+}
+
+static void ina_init(void)
+{
+    ina = i2c_add(INA_I2C_ADDR);
+    uint8_t cfg[3] = { INA_REG_CONFIG, 0x39, 0x9F };
+    if (i2c_master_transmit(ina, cfg, sizeof(cfg), 100) != ESP_OK) {
+        printf("INA219 not responding; power readings disabled\n");
+        return;
+    }
+    ina_ok = true;
+}
+
+/* Pack voltage in volts and current in mA, positive when discharging. */
+static esp_err_t ina_read(float *volts, float *milliamps)
+{
+    uint16_t bus_reg, shunt_reg;
+    esp_err_t err = ina_read_reg(INA_REG_BUS, &bus_reg);
+    if (err == ESP_OK) {
+        err = ina_read_reg(INA_REG_SHUNT, &shunt_reg);
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+    *volts = (bus_reg >> 3) * 0.004f;
+    *milliamps = (int16_t)shunt_reg * 0.1f;   /* 10 uV / 0.1R = 100 uA per LSB */
+    return ESP_OK;
+}
+
+static void lsm_init(void)
+{
+    lsm = i2c_add(LSM_I2C_ADDR);
+    uint8_t reg = LSM_REG_WHOAMI, id = 0;
+    uint8_t xl_cfg[2] = { LSM_REG_CTRL1_XL, 0x40 };
+    uint8_t g_cfg[2] = { LSM_REG_CTRL2_G, 0x44 };
+    if (i2c_master_transmit_receive(lsm, &reg, 1, &id, 1, 100) != ESP_OK ||
+        id != 0x6C ||
+        i2c_master_transmit(lsm, xl_cfg, sizeof(xl_cfg), 100) != ESP_OK ||
+        i2c_master_transmit(lsm, g_cfg, sizeof(g_cfg), 100) != ESP_OK) {
+        printf("LSM6DSOX not responding; motion readings disabled\n");
+        return;
+    }
+    lsm_ok = true;
+}
+
+/* Gyro in degrees/s and accel in g, both x/y/z. */
+static esp_err_t lsm_read(float dps[3], float g[3])
+{
+    uint8_t reg = LSM_REG_OUTX_L_G;
+    uint8_t raw[12];
+    esp_err_t err = i2c_master_transmit_receive(lsm, &reg, 1, raw, sizeof(raw), 100);
+    if (err != ESP_OK) {
+        return err;
+    }
+    for (int i = 0; i < 3; i++) {
+        dps[i] = (int16_t)(raw[2 * i] | (raw[2 * i + 1] << 8)) * 0.0175f;      /* 17.5 mdps/LSB at ±500 dps */
+        g[i] = (int16_t)(raw[6 + 2 * i] | (raw[7 + 2 * i] << 8)) * 0.000061f;  /* 0.061 mg/LSB at ±2 g */
+    }
     return ESP_OK;
 }
 
@@ -181,6 +274,8 @@ static void print_help(void)
            "  z                  sleep the motor driver\n"
            "  w                  wake the motor driver\n"
            "  t                  read thermal mean\n"
+           "  v                  read pack voltage and current\n"
+           "  g                  read gyro and accelerometer\n"
            "  ?                  this help\n");
 }
 
@@ -207,6 +302,21 @@ static void handle_line(char *line)
         } else {
             printf("sensor read failed\n");
         }
+    } else if (strcmp(line, "v") == 0) {
+        float volts, ma;
+        if (ina_ok && ina_read(&volts, &ma) == ESP_OK) {
+            printf("%.2f V, %.0f mA\n", volts, ma);
+        } else {
+            printf("power sensor read failed\n");
+        }
+    } else if (strcmp(line, "g") == 0) {
+        float dps[3], g[3];
+        if (lsm_ok && lsm_read(dps, g) == ESP_OK) {
+            printf("gyro %7.1f %7.1f %7.1f dps  accel %6.2f %6.2f %6.2f g\n",
+                   dps[0], dps[1], dps[2], g[0], g[1], g[2]);
+        } else {
+            printf("motion sensor read failed\n");
+        }
     } else {
         print_help();
     }
@@ -215,7 +325,10 @@ static void handle_line(char *line)
 void app_main(void)
 {
     motors_init();
+    i2c_init();
     amg_init();
+    ina_init();
+    lsm_init();
     ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 256, 0, 0, NULL, 0));
     print_help();
 

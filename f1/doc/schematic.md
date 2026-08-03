@@ -70,6 +70,10 @@ the ESP32**, the reservoir stays **down in the cavity with the driver**.
 | ESP32 GND | AMG8833 GND | black | to the ESP32 only — see Notes |
 | ESP32 GPIO8 | AMG8833 SDA | blue | |
 | ESP32 GPIO9 | AMG8833 SCL | yellow | |
+| AMG8833 spare QT port | LSM6DSOX QT port | QT cable | I2C daisy chain, all four lines |
+| LSM6DSOX spare QT port | INA219 QT port | QT cable | |
+| Pack + (after switch) | INA219 VIN+ | red | shunt inserted in the pack + lead |
+| INA219 VIN− | 6V rail entry | red | run both legs up/down as a twisted pair |
 | DRV8833 AOUT1/AOUT2 | right motor | red / black | soldered with polarity inverted |
 | DRV8833 BOUT1/BOUT2 | left motor | red / black | soldered with polarity inverted |
 
@@ -88,8 +92,8 @@ right = 5/4).
 | 5 | AIN2 (PWM) — right motor, inverted |
 | 6 | BIN1 (PWM) — left motor, inverted |
 | 7 | BIN2 (PWM) — left motor, inverted |
-| 8 | I2C SDA (AMG8833) |
-| 9 | I2C SCL (AMG8833) |
+| 8 | I2C SDA — QT chain: AMG8833 0x69, LSM6DSOX 0x6A, INA219 0x40 |
+| 9 | I2C SCL — QT chain as above |
 | 10 | DRV8833 sleep control |
 
 ## Notes
@@ -122,6 +126,11 @@ right = 5/4).
 - **Noise.** Twist the wires to each motor; they stay inside the cavity, a
   level below the AMG8833's I2C run, which goes straight from the front
   standoffs up to the shelf without entering the cavity.
+- **INA219 shunt.** The whole robot's current detours through the shelf-
+  mounted INA219 (0.1R shunt: ~50 mV drop at cruise, ~0.3 V at a hard
+  stall, on top of pack sag). Both legs of the detour run as one twisted
+  pair so the motor spikes cancel; keep that pair clear of the QT cables,
+  and suspect it first if thermal readings ever go jittery.
 - **Sensor stays cool.** Mounting the AMG8833 outside on standoffs keeps it
   out of the cavity's warm air (motors and driver both dissipate) — a
   thermal camera reading its own waste heat sees a raised, flattened scene.
