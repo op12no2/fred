@@ -61,11 +61,11 @@ the ESP32**, the reservoir stays **down in the cavity with the driver**.
 | Pack + / − | 6V / GND rails | red / black | enter next to the driver taps |
 | 6V / GND rails | DRV8833 VIN / GND | red / black | immediately adjacent to pack entry |
 | 6V / GND rails | ESP32 5V / GND pins | red / black | twisted pair up to the shelf; onboard LDO makes 3.3 V |
-| ESP32 GPIO4 | DRV8833 AIN1 | any | left motor PWM |
-| ESP32 GPIO5 | DRV8833 AIN2 | any | left motor PWM |
-| ESP32 GPIO6 | DRV8833 BIN1 | any | right motor PWM |
-| ESP32 GPIO7 | DRV8833 BIN2 | any | right motor PWM |
-| ESP32 GPIO10 | DRV8833 SLP | any | drive high to enable; low = sleep |
+| ESP32 GPIO4 | DRV8833 AIN1 | green | left motor PWM |
+| ESP32 GPIO5 | DRV8833 AIN2 | yellow | left motor PWM |
+| ESP32 GPIO6 | DRV8833 BIN1 | red | right motor PWM |
+| ESP32 GPIO7 | DRV8833 BIN2 | orange | right motor PWM |
+| ESP32 GPIO10 | DRV8833 SLP | brown | drive high to enable; low = sleep |
 | ESP32 3V3 | AMG8833 VIN | red | STEMMA QT colours shown |
 | ESP32 GND | AMG8833 GND | black | to the ESP32 only — see Notes |
 | ESP32 GPIO8 | AMG8833 SDA | blue | |
