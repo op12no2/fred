@@ -582,7 +582,7 @@ static void watch_toggle(void)
         watch_state = WATCH_OFF;
         drive(0, 0);
         rgb_set(48, 24, 0);
-        vTaskDelay(pdMS_TO_TICKS(400));
+        vTaskDelay(pdMS_TO_TICKS(800));
         rgb_set(RGB_GREEN);
         printf("watcher: off\n");
     } else if (!amg_ok) {
@@ -590,9 +590,9 @@ static void watch_toggle(void)
     } else {
         for (int i = 0; i < 2; i++) {
             rgb_set(RGB_BLUE);
-            vTaskDelay(pdMS_TO_TICKS(150));
+            vTaskDelay(pdMS_TO_TICKS(300));
             rgb_set(RGB_GREEN);
-            vTaskDelay(pdMS_TO_TICKS(150));
+            vTaskDelay(pdMS_TO_TICKS(300));
         }
         watch_bg_seed = true;
         watch_prev_held = false;
@@ -668,7 +668,9 @@ static void watch_step(const int16_t px[64], const float dps[3],
                     watch_orient_n = n;
                     watch_yaw = 0;
                     watch_look_until = now + WATCH_ORIENT_TIMEOUT_S * 1000000LL;
-                    int sign = n > 0 ? 1 : -1;
+                    /* sign field-tested: he turned away from the first
+                     * tester — image columns run mirrored to the guess */
+                    int sign = n > 0 ? -1 : 1;
                     drive(sign * WATCH_ORIENT_PCT, -sign * WATCH_ORIENT_PCT);
                     watch_whiff_prev = true;
                     watch_state = WATCH_ORIENT;
