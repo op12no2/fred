@@ -19,6 +19,7 @@ shelf, in full view. The AMG8833 pokes out the front on 6 mm standoffs.
 - [Parts](./doc/parts.md)
 - [Schematic](./doc/schematic.md)
 - [Firmware design](./doc/firmware.md)
+- [Notes](./doc/notes.md)
 
 ## Build and flash
 
