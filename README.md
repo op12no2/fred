@@ -7,7 +7,7 @@ README etc..
 | Robot | Function | 
 |-------|----------|
 | [f0](./f0/) | Analog | 
-| [f1](./f1/) | Heat seeker |
+| [f1](./f1/) | Shy but curious |
 | [f2](./f2/) | WIP |
 
 ## Fleet communications
