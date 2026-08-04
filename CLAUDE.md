@@ -37,6 +37,7 @@ Each robot's `firmware/firmware.sh` captures this flash-and-monitor sequence. Th
 | 6, 7 | BIN1/BIN2 — left motor, inverted (PWM into DRV8833) |
 | 8, 9 | I2C SDA/SCL — QT chain: AMG8833 0x69, LSM6DSOX IMU 0x6A, INA219 power monitor 0x40 |
 | 10 | DRV8833 nSLEEP — drive high to enable the motor driver |
+| 38 | onboard WS2812 RGB status LED (red = booting/failed, green = well, blue = performing) |
 
 ## f2 GPIO map (from f2/doc/schematic.md)
 
@@ -55,5 +56,4 @@ Keep each robot's `doc/schematic.md` and the `#define`s in its `firmware_main.c`
 - The firmware uses the newer `driver/i2c_master.h` API (esp_driver_i2c component), not the legacy I2C driver.
 - AMG8833 pixels are 12-bit two's complement, 0.25 °C per LSB, 64 pixels read from register 0x80.
 - Naming: the fleet is f0..fN, each robot evolving from the last ("fleet", not "herd"). f0 is the chipless button-bot and must stay code-free.
-- Parts lists do not include specific details that could change from build to build if replicated like veroboard, wire, spacers, power switches and nuts/bolts etc.
- 
+- Parts lists do not include specific choices that could change from build to build if replicated like veroboard, wire, spacers, power switches and nuts/bolts etc.

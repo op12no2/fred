@@ -1,6 +1,7 @@
 /* firmware: Fred the robot. AMG8833 thermal camera, LSM6DSOX IMU and
- * INA219 power monitor on one I2C bus, DRV8833 motors, and a serial
- * test console (type '?' in idf.py monitor). */
+ * INA219 power monitor on one I2C bus, DRV8833 motors, the DevKit's
+ * onboard RGB status LED, and a serial test console (type '?' in
+ * idf.py monitor). */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,7 +10,12 @@
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/ledc.h"
+#include "driver/rmt_encoder.h"
+#include "driver/rmt_tx.h"
 #include "driver/uart.h"
+#include "esp_heap_caps.h"
+#include "esp_rom_sys.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -45,6 +51,14 @@
 #define PWM_FREQ_HZ     25000  /* above audible, well under DRV8833's max */
 #define PWM_RES         LEDC_TIMER_10_BIT
 #define PWM_MAX         (1 << 10)   /* LEDC duty range is [0, 2^res] */
+
+#define RGB_GPIO        38     /* DevKitC-1 v1.1 onboard WS2812; v1.0 boards use 48 */
+
+/* Status colours, dim enough to look at — the LED is blinding at full duty.
+ * Red = booting or a check failed, green = all well, blue = performing. */
+#define RGB_RED         32, 0, 0
+#define RGB_GREEN       0, 32, 0
+#define RGB_BLUE        0, 0, 48
 
 #define MOTOR_L_IN1_CH  LEDC_CHANNEL_0
 #define MOTOR_L_IN2_CH  LEDC_CHANNEL_1
@@ -104,8 +118,8 @@ static void amg_init(void)
     amg_ok = true;
 }
 
-/* Mean of all 64 pixels in degrees C. */
-static esp_err_t amg_read_mean(float *mean)
+/* All 64 pixels, sign-extended raw counts (0.25 C per LSB). */
+static esp_err_t amg_read_pixels(int16_t px[64])
 {
     uint8_t reg = AMG_REG_PIXELS;
     uint8_t raw[128];
@@ -113,13 +127,27 @@ static esp_err_t amg_read_mean(float *mean)
     if (err != ESP_OK) {
         return err;
     }
-    int sum = 0;
     for (int i = 0; i < 64; i++) {
         int v = (raw[2 * i] | (raw[2 * i + 1] << 8)) & 0x0FFF;
         if (v & 0x800) {
             v -= 0x1000;   /* 12-bit two's complement */
         }
-        sum += v;
+        px[i] = v;
+    }
+    return ESP_OK;
+}
+
+/* Mean of all 64 pixels in degrees C. */
+static esp_err_t amg_read_mean(float *mean)
+{
+    int16_t px[64];
+    esp_err_t err = amg_read_pixels(px);
+    if (err != ESP_OK) {
+        return err;
+    }
+    int sum = 0;
+    for (int i = 0; i < 64; i++) {
+        sum += px[i];
     }
     *mean = sum * 0.25f / 64.0f;
     return ESP_OK;
@@ -195,6 +223,40 @@ static esp_err_t lsm_read(float dps[3], float g[3])
     return ESP_OK;
 }
 
+static rmt_channel_handle_t rgb_chan;
+static rmt_encoder_handle_t rgb_enc;
+
+static void rgb_init(void)
+{
+    rmt_tx_channel_config_t chan_cfg = {
+        .gpio_num = RGB_GPIO,
+        .clk_src = RMT_CLK_SRC_DEFAULT,
+        .resolution_hz = 10 * 1000 * 1000,   /* 0.1 us ticks */
+        .mem_block_symbols = 64,
+        .trans_queue_depth = 1,
+    };
+    ESP_ERROR_CHECK(rmt_new_tx_channel(&chan_cfg, &rgb_chan));
+
+    /* WS2812 bit timing in those ticks: 0 = 0.3 us high / 0.9 us low,
+     * 1 = 0.9 us high / 0.3 us low. */
+    rmt_bytes_encoder_config_t enc_cfg = {
+        .bit0 = { .level0 = 1, .duration0 = 3, .level1 = 0, .duration1 = 9 },
+        .bit1 = { .level0 = 1, .duration0 = 9, .level1 = 0, .duration1 = 3 },
+        .flags.msb_first = 1,
+    };
+    ESP_ERROR_CHECK(rmt_new_bytes_encoder(&enc_cfg, &rgb_enc));
+    ESP_ERROR_CHECK(rmt_enable(rgb_chan));
+}
+
+static void rgb_set(uint8_t r, uint8_t g, uint8_t b)
+{
+    uint8_t grb[3] = { g, r, b };   /* WS2812 byte order */
+    rmt_transmit_config_t tx_cfg = { .loop_count = 0 };
+    ESP_ERROR_CHECK(rmt_transmit(rgb_chan, rgb_enc, grb, sizeof(grb), &tx_cfg));
+    ESP_ERROR_CHECK(rmt_tx_wait_all_done(rgb_chan, 100));
+    esp_rom_delay_us(60);   /* latch gap so a back-to-back frame isn't swallowed */
+}
+
 static void pwm_channel_init(ledc_channel_t ch, int gpio)
 {
     ledc_channel_config_t cfg = {
@@ -236,10 +298,50 @@ static void motor_set(ledc_channel_t in1, ledc_channel_t in2, int pct)
     }
 }
 
+/* True when the pack is supplying current. With the pack off and USB in,
+ * the 6V rail is back-fed through the DevKit's diode and the pack shunt
+ * carries nothing — running motors then would pull amps through that
+ * diode (see schematic.md). The pack covers the ESP32's ~100 mA idle
+ * draw whenever it's on, so a near-zero shunt reading means USB only. */
+static bool pack_live(void)
+{
+    float volts, ma;
+    if (!ina_ok || ina_read(&volts, &ma) != ESP_OK) {
+        return true;   /* can't tell — assume the pack is on */
+    }
+    return ma > 30.0f;
+}
+
+static int16_t cmd_left, cmd_right;   /* last commanded duties, for the log */
+
 static void drive(int left_pct, int right_pct)
 {
+    cmd_left = left_pct;
+    cmd_right = right_pct;
+    if (!pack_live()) {
+        printf("motors (traced, usb power only): left %d right %d\n",
+               left_pct, right_pct);
+        return;
+    }
     motor_set(MOTOR_L_IN1_CH, MOTOR_L_IN2_CH, left_pct);
     motor_set(MOTOR_R_IN1_CH, MOTOR_R_IN2_CH, right_pct);
+}
+
+/* "I'm alive and all is well": wiggle on the spot with blue winks on the
+ * beats, then settle to green. One function per performance until there
+ * are enough of them to be worth a dispatcher. */
+static void perform_alive(void)
+{
+    for (int i = 0; i < 3; i++) {
+        rgb_set(RGB_BLUE);
+        drive(60, -60);   /* above the ~30% standstill deadband */
+        vTaskDelay(pdMS_TO_TICKS(150));
+        rgb_set(RGB_GREEN);
+        drive(-60, 60);
+        vTaskDelay(pdMS_TO_TICKS(150));
+    }
+    drive(0, 0);
+    rgb_set(RGB_GREEN);
 }
 
 static void motors_init(void)
@@ -266,6 +368,95 @@ static void motors_init(void)
     gpio_set_level(DRV_SLP_GPIO, 1);
 }
 
+/* Recorder: 10 Hz snapshots of every sensor plus the commanded motor
+ * duties, into a PSRAM ring for bench analysis (r to record, d to dump
+ * as CSV). PSRAM is wiped by reset — and `idf.py monitor` resets the
+ * chip on connect, so retrieve untethered runs with --no-reset. */
+#define REC_HZ         10
+#define REC_SPIRAM_N   36000   /* ~1 h at 10 Hz, ~6 MB of the 8 MB PSRAM */
+#define REC_INTERNAL_N 600     /* ~1 min fallback if PSRAM is absent */
+
+typedef struct {
+    uint32_t ms;
+    int16_t left, right;
+    int16_t px[64];
+    float dps[3], g[3];
+    float volts, ma;
+} rec_t;
+
+static rec_t *rec_buf;
+static int rec_cap, rec_head, rec_len;
+static volatile bool rec_on;
+
+static void rec_task(void *arg)
+{
+    TickType_t wake = xTaskGetTickCount();
+    while (1) {
+        xTaskDelayUntil(&wake, pdMS_TO_TICKS(1000 / REC_HZ));
+        if (!rec_on) {
+            continue;
+        }
+        rec_t *r = &rec_buf[rec_head];
+        memset(r, 0, sizeof(*r));   /* failed reads log as zeros */
+        r->ms = esp_timer_get_time() / 1000;
+        r->left = cmd_left;
+        r->right = cmd_right;
+        if (amg_ok) {
+            amg_read_pixels(r->px);
+        }
+        if (lsm_ok) {
+            lsm_read(r->dps, r->g);
+        }
+        if (ina_ok) {
+            ina_read(&r->volts, &r->ma);
+        }
+        rec_head = (rec_head + 1) % rec_cap;
+        if (rec_len < rec_cap) {
+            rec_len++;
+        }
+    }
+}
+
+static void rec_init(void)
+{
+    rec_cap = REC_SPIRAM_N;
+    rec_buf = heap_caps_malloc(rec_cap * sizeof(rec_t), MALLOC_CAP_SPIRAM);
+    if (rec_buf == NULL) {
+        rec_cap = REC_INTERNAL_N;
+        rec_buf = malloc(rec_cap * sizeof(rec_t));
+    }
+    if (rec_buf == NULL) {
+        rec_cap = 0;
+        printf("no memory for the recorder; r/d disabled\n");
+        return;
+    }
+    xTaskCreate(rec_task, "rec", 4096, NULL, 5, NULL);
+}
+
+static void rec_dump(void)
+{
+    if (rec_on) {
+        printf("still recording; r to stop first\n");
+        return;
+    }
+    printf("ms,left,right,volts,ma,gx,gy,gz,ax,ay,az");
+    for (int i = 0; i < 64; i++) {
+        printf(",p%d", i);
+    }
+    printf("\n");
+    for (int i = 0; i < rec_len; i++) {
+        rec_t *r = &rec_buf[(rec_head - rec_len + i + rec_cap) % rec_cap];
+        printf("%lu,%d,%d,%.2f,%.0f,%.1f,%.1f,%.1f,%.3f,%.3f,%.3f",
+               (unsigned long)r->ms, r->left, r->right, r->volts, r->ma,
+               r->dps[0], r->dps[1], r->dps[2], r->g[0], r->g[1], r->g[2]);
+        for (int p = 0; p < 64; p++) {
+            printf(",%.2f", r->px[p] * 0.25f);
+        }
+        printf("\n");
+    }
+    printf("# %d records\n", rec_len);
+}
+
 static void print_help(void)
 {
     printf("commands:\n"
@@ -276,12 +467,17 @@ static void print_help(void)
            "  t                  read thermal mean\n"
            "  v                  read pack voltage and current\n"
            "  g                  read gyro and accelerometer\n"
+           "  p <which>          perform: a = I'm-alive\n"
+           "  l <r> <g> <b>      set the RGB LED, 0..255 (l 32 0 0)\n"
+           "  r                  record all sensors at 10 Hz, start/stop\n"
+           "  d                  dump the recording as CSV\n"
            "  ?                  this help\n");
 }
 
 static void handle_line(char *line)
 {
-    int l, r;
+    int l, r, cr, cg, cb;
+    char pc;
     if (sscanf(line, "m %d %d", &l, &r) == 2) {
         drive(l, r);
         printf("motors: left %d right %d\n", l, r);
@@ -317,6 +513,30 @@ static void handle_line(char *line)
         } else {
             printf("motion sensor read failed\n");
         }
+    } else if (sscanf(line, "p %c", &pc) == 1) {
+        if (pc == 'a') {
+            perform_alive();
+            printf("performance: done\n");
+        } else {
+            printf("no such performance: %c\n", pc);
+        }
+    } else if (sscanf(line, "l %d %d %d", &cr, &cg, &cb) == 3) {
+        rgb_set(cr, cg, cb);
+        printf("led: %d %d %d\n", cr, cg, cb);
+    } else if (strcmp(line, "r") == 0) {
+        if (rec_cap == 0) {
+            printf("recorder disabled (no memory)\n");
+        } else if (rec_on) {
+            rec_on = false;
+            printf("recording stopped: %d records (d to dump)\n", rec_len);
+        } else {
+            rec_head = 0;
+            rec_len = 0;   /* each run starts fresh */
+            rec_on = true;
+            printf("recording at %d Hz (r to stop)\n", REC_HZ);
+        }
+    } else if (strcmp(line, "d") == 0) {
+        rec_dump();
     } else {
         print_help();
     }
@@ -324,18 +544,25 @@ static void handle_line(char *line)
 
 void app_main(void)
 {
+    rgb_init();
+    rgb_set(RGB_RED);   /* red until every check passes */
+
     motors_init();
     i2c_init();
     amg_init();
     ina_init();
     lsm_init();
+    rec_init();
     ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 256, 0, 0, NULL, 0));
     print_help();
 
-    /* Default behaviour: spin in place until a console command takes over,
-     * so f1 can be tested untethered. */
-    drive(40, -40);
-    printf("motors: default spin, left 40 right -40 (s to stop)\n");
+    if (amg_ok && ina_ok && lsm_ok) {
+        rgb_set(RGB_GREEN);
+        perform_alive();
+        printf("startup: all checks passed\n");
+    } else {
+        printf("startup: checks failed, staying red and still\n");
+    }
 
     char line[64];
     int len = 0;

@@ -90,6 +90,23 @@ Movement:
   Also the operating rule: pack on before motors run — with the pack off,
   motor current would be pulled from USB (see schematic.md).
 
+## Data recorder
+
+Tuning happens against logs, not memory. `r` starts/stops a 10 Hz
+recording of everything — thermal frame, gyro/accel, volts/amps,
+commanded motor duties — into a PSRAM ring (~1 h capacity); `d` dumps
+it as CSV over the console. Whenever a run felt "off", dump it and see
+what Fred saw.
+
+Two wrinkles in retrieving a run, both monitor-side. PSRAM is wiped by
+reset, and `idf.py monitor` resets the chip on connect — always attach
+with `idf.py monitor --no-reset`. And `d` only writes to the serial
+wire; the file is made by whatever is listening, so either toggle the
+monitor's file logging with Ctrl+T Ctrl+L around the dump, or start it
+as `idf.py monitor --no-reset -l run.log` and the whole session lands
+in the file. On the bench: `pandas.read_csv(path, comment="#")`,
+trimming any non-CSV monitor chatter first.
+
 ## Tuning parameters (expected)
 
 `acquire/keep thresholds, persistence frames, EMA alpha, base speed, k,

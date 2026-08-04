@@ -95,6 +95,7 @@ right = 5/4).
 | 8 | I2C SDA — QT chain: AMG8833 0x69, LSM6DSOX 0x6A, INA219 0x40 |
 | 9 | I2C SCL — QT chain as above |
 | 10 | DRV8833 sleep control |
+| 38 | onboard WS2812 RGB status LED — no wiring; DevKitC-1 v1.1 (v1.0 boards use 48) |
 
 ## Notes
 
@@ -121,8 +122,12 @@ right = 5/4).
   conducts the other way: USB 5 V lands on the 6V rail and powers the
   DRV8833 and motors too. Fine for console and sensor work, but don't
   run the motors like this — a stall pulls amps through a diode rated
-  for about one, and through the host's USB port. Habit: `z` (sleep the
-  driver) or `s` before switching the pack off with USB attached.
+  for about one, and through the host's USB port. The firmware guards
+  this: `drive()` checks the INA219 shunt current and, when the pack
+  isn't supplying (near-zero reading), traces motor commands instead of
+  executing them. Still the habit: `z` (sleep the driver) or `s` before
+  switching the pack off with USB attached — the guard blocks new
+  commands, it can't stop motors already turning.
 - **Noise.** Twist the wires to each motor; they stay inside the cavity, a
   level below the AMG8833's I2C run, which goes straight from the front
   standoffs up to the shelf without entering the cavity.
