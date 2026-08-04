@@ -602,7 +602,8 @@ static void cal_run(int delay_s)
 static void print_help(void)
 {
     printf("commands:\n"
-           "  m <left> <right>   set motor speeds, -100..100 (m 50 50)\n"
+           "  m <l> <r> [secs]   set motor speeds, -100..100, after an\n"
+           "                     optional delay (m 20 -20 10)\n"
            "  s                  stop (coast; the driver sleeps itself)\n"
            "  t                  read thermal mean\n"
            "  v                  read pack voltage and current\n"
@@ -618,9 +619,14 @@ static void print_help(void)
 
 static void handle_line(char *line)
 {
-    int l, r, cr, cg, cb;
+    int l, r, cr, cg, cb, dl;
     char pc;
-    if (sscanf(line, "m %d %d", &l, &r) == 2) {
+    if (sscanf(line, "m %d %d %d", &l, &r, &dl) == 3) {
+        printf("motors: left %d right %d in %d s\n", l, r, dl);
+        countdown_winks(dl);   /* time to put him down */
+        rgb_set(RGB_GREEN);
+        drive(l, r);
+    } else if (sscanf(line, "m %d %d", &l, &r) == 2) {
         drive(l, r);
         printf("motors: left %d right %d\n", l, r);
     } else if (strcmp(line, "s") == 0) {

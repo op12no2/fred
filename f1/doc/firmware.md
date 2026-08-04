@@ -74,6 +74,15 @@ Console: `m s t v g c p l r d ?`.
   are invisible to the accelerometer.
 - **Gyro**: z bias −0.7 dps at rest; handling (pickup) is a 150:1
   signal.
+- **The stationary room** (quiet_room_sat.log, 4 humanless minutes):
+  per-pixel noise ~0.3 °C; frame median steady to ±0.2 °C; the worst
+  any pixel strayed above its own long mean was 1.45 °C, so **a
+  per-pixel background + 1.5 °C threshold gave zero false alarms** —
+  and a walking human registers +7 °C against it. Background settles
+  in ~10 s of stillness. The spinning room (quiet_room_spin.log) has
+  stable heading structure — conservatory sector +0.8 °C over the hall
+  side — and even at 59 dps only 1% of frames grazed the old
+  frame-median +2.0 bar.
 
 ## The watcher (to design)
 
@@ -83,9 +92,12 @@ resting pack voltage → on a new compact warm blob: double-check
 (persistence against the background), then with signal-weighted
 probability a tentative step or two toward it, each ending in rest and
 re-observation → greet a confirmed close visitor (`p f`) → picked up:
-violet, motors stay silent, enjoy the ride. First design questions: how
-long a settled frame needs to become a trusted background, and what
-"new blob" means against it.
+violet, motors stay silent, enjoy the ride. The two founding questions
+are answered by the quiet-room logs: a background is trustworthy after
+**~10 s** of stillness, and "new blob" means **any pixel cluster
+exceeding its per-pixel background by 1.5 °C for 3–4 frames** —
+measured zero false alarms over 4 min, while a person at 2 m clears it
+with margin (and a walking one by 5×).
 
 ## Data recorder
 
@@ -94,6 +106,11 @@ recording of everything — thermal frame, gyro/accel, volts/amps,
 commanded motor duties, held state — into a PSRAM ring (~1 h
 capacity); `d` dumps it as CSV over the console. Columns:
 `ms,left,right,volts,ma,held,gx,gy,gz,ax,ay,az,p0..p63`.
+
+Runs worth keeping move to `f1/log/` with descriptive names
+(`quiet_room_spin.log` — the 32-lap empty-room thermal panorama;
+`quiet_room_sat.log` — the stationary background/noise run); throwaway
+dumps stay untracked in `firmware/` as `log.firmware.<timestamp>.txt`.
 
 Two wrinkles in retrieving a run, both monitor-side. PSRAM is wiped by
 reset, and `idf.py monitor` resets the chip on connect — always attach
