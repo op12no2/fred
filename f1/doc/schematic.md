@@ -123,11 +123,12 @@ right = 5/4).
   DRV8833 and motors too. Fine for console and sensor work, but don't
   run the motors like this — a stall pulls amps through a diode rated
   for about one, and through the host's USB port. The firmware guards
-  this: `drive()` checks the INA219 shunt current and, when the pack
-  isn't supplying (near-zero reading), traces motor commands instead of
-  executing them. Still the habit: `z` (sleep the driver) or `s` before
-  switching the pack off with USB attached — the guard blocks new
-  commands, it can't stop motors already turning.
+  this twice over: `drive()` checks the INA219 shunt current and, when
+  the pack isn't supplying (near-zero reading), traces motor commands
+  instead of executing them; and the DRV8833 auto-sleeps whenever both
+  duties are zero. Still the habit: `s` before switching the pack off
+  with USB attached — the guard blocks new commands, it can't stop
+  motors already turning.
 - **Noise.** Twist the wires to each motor; they stay inside the cavity, a
   level below the AMG8833's I2C run, which goes straight from the front
   standoffs up to the shelf without entering the cavity.

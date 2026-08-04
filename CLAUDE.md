@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Fred is a fleet of small home robots (f0..fN), one directory per robot. Two active builds:
 
-- **f1** (building now): wanders fairly aimlessly with a slight penchant for heat (AMG8833 8x8 IR thermal camera) — settles in warm places, greets visitors as heat transients. Being rebuilt primitives-first (motor layer, performances, recorder, calibration, bump detection; an earlier SEEK/TRACK/ARRIVE hunt was trialled and removed — its lessons are in f1/doc/firmware.md "Measured facts"). ESP32-S3-DevKitC-1 on the blue octagon chassis, two TT 1:90 motors and a caster through a single DRV8833, 4xAA NiMH pack.
+- **f1** (building now): a watcher — mostly stationary with the motor driver asleep, watching through an AMG8833 8x8 IR thermal camera; occasional voltage-scaled look-arounds, a double-check and tentative approach when a new heat source appears, pickup detection via gyro. Currently a set of primitives plus logging (motor layer, performances, recorder, calibration, pickup); the behaviour loop is designed in f1/doc/firmware.md, whose "Measured facts" section preserves lessons from the trialled-and-removed heat-seeking hunt. ESP32-S3-DevKitC-1 on the blue octagon chassis, two TT 1:90 motors and a caster through a single DRV8833, 4xAA NiMH pack. ESP32-S3-DevKitC-1 on the blue octagon chassis, two TT 1:90 motors and a caster through a single DRV8833, 4xAA NiMH pack.
 - **f2** (next; parts not ordered - design can change): f1 evolved — Waveshare NS chassis, four TT motors (paired per side, skid steer) through two DRV8833s, an I2C suite (ToF, buzzer, LED matrix), 2S LiPo with a 5V buck, switched by an XT60 pull-loop key.
 
 ## Layout
@@ -37,7 +37,7 @@ Each robot's `firmware/firmware.sh` captures this flash-and-monitor sequence. Th
 | 6, 7 | BIN1/BIN2 — left motor, inverted (PWM into DRV8833) |
 | 8, 9 | I2C SDA/SCL — QT chain: AMG8833 0x69, LSM6DSOX IMU 0x6A, INA219 power monitor 0x40 |
 | 10 | DRV8833 nSLEEP — drive high to enable the motor driver |
-| 38 | onboard WS2812 RGB status LED (red boot/fail/bump, green well, blue performing) |
+| 38 | onboard WS2812 RGB status LED (red boot/fail, green well, blue performing, violet held) |
 
 ## f2 GPIO map (from f2/doc/schematic.md)
 

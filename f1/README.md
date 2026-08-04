@@ -1,8 +1,9 @@
 # f1
 
-f1 wanders fairly aimlessly with a slight penchant for heat (an AMG8833
-8x8 thermal camera): he settles in warm places, wanders off
-occasionally, and responds happily when someone comes to see him. The
+f1 is a watcher: mostly stationary, eyes open (an AMG8833 8x8 thermal
+camera), motor driver asleep. Now and again he looks around, and a new
+source of warmth — someone arriving — earns a double-check and maybe a
+tentative move their way. He knows when he's been picked up. The
 essential Fred: thermal eyes, two motors, one driver, nothing else.
 
 ESP32-S3-DevKitC-1 on the blue octagon chassis: two TT 1:90 gear motors
