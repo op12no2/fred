@@ -94,20 +94,35 @@ Console: `m s t v g c p l r d ?`.
   side — and even at 59 dps only 1% of frames grazed the old
   frame-median +2.0 bar.
 
-## The watcher (to design)
+## The watcher
 
-A quiet loop over the primitives: rest (driver asleep, frame watched,
-per-pixel background learning) → occasional look-around, rate scaled by
-resting pack voltage → on a new compact warm blob: double-check
-(persistence against the background), then with signal-weighted
-probability a tentative step or two toward it, each ending in rest and
-re-observation → greet a confirmed close visitor (`p f`) → picked up:
-violet, motors stay silent, enjoy the ride. The two founding questions
-are answered by the quiet-room logs: a background is trustworthy after
-**~10 s** of stillness, and "new blob" means **any pixel cluster
-exceeding its per-pixel background by 1.5 °C for 3–4 frames** —
-measured zero false alarms over 4 min, while a person at 2 m clears it
-with margin (and a walking one by 5×).
+**v1 heartbeat implemented** (`w` toggles; every knob a `WATCH_*`
+define citing f1/log/): rest with the driver asleep, learning a
+per-pixel background (seeded after every move or set-down, trusted
+after ~10 s, updated only on quiet frames so a visitor can't become
+wall) → look around at log-normally random intervals (median 3 min
+fresh, stretched ×3 as the resting-voltage mood tires, clamped
+30 s–30 min) → the look is a gyro-metered full circle whose speed
+falls with mood and whose **gaze lingers** — passing warmth above the
+scene mean sheds sweep duty down to a crawl. Nudges pull the next look
+to ~20 s: a whiff (any pixel > background +1.5 °C, the zero-false-alarm
+threshold) or a set-down ("new spot"). Held aborts everything, as
+ever. Rest = green, looking = blue, and a whiff on arrival earns an
+**amber blip** ("interesting") plus a **head-turn**: a gentle
+gyro-metered rotation toward the whiff's column, quantized to whole
+columns (7.5° each, capped at ±3) off the measured 3.2 boresight —
+after which the learned background is *slid* the same number of
+columns rather than discarded, so the visitor stays distinct from the
+wallpaper and only the newly revealed edge reseeds. The full look
+stays deferred and jittered (every "soon" is `WATCH_SOON_S` ± half);
+transitions print with mood and volts; `ws` column (1 rest, 2 look,
+3 head-turn) in the recorder.
+
+**Next layer — responding**: on a whiff, instead of just looking
+sooner: double-check (persistence against the background), then with
+probability ∝ blob size × dwell (gestures.log) a greeting (`p f`)
+and/or a tentative step or two toward it, each ending in rest and
+re-observation.
 
 ## Data recorder
 

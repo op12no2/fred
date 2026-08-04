@@ -15,7 +15,9 @@
 #include "driver/rmt_tx.h"
 #include "driver/uart.h"
 #include "esp_heap_caps.h"
+#include "esp_random.h"
 #include "esp_rom_sys.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -464,8 +466,244 @@ static void held_check(const float dps[3], const float g[3])
     }
 }
 
+/* Watcher: the resting heartbeat (w to toggle). Rest with the driver
+ * asleep, learning a per-pixel background; look around (a gyro-metered
+ * full circle) at log-normally random intervals whose median stretches
+ * as the pack tires; a whiff of warmth or a set-down pulls the next
+ * look closer; the sweep itself slows when something warm crosses the
+ * view — the gaze lingers. All knobs below; thresholds cite
+ * f1/log/. Responding to what he sees is the next layer. */
+#define WATCH_LOOK_MED_S    180     /* median rest between looks, fresh pack */
+#define WATCH_LOOK_SIGMA    0.7f    /* log-normal spread: double-takes and naps */
+#define WATCH_LOOK_MIN_S    30
+#define WATCH_LOOK_MAX_S    1800
+#define WATCH_FRESH_V       5.4f    /* resting volts at mood 0 (fresh) */
+#define WATCH_TIRED_V       4.7f    /* resting volts at mood 1 (tired) */
+#define WATCH_TIRED_SCALE   3.0f    /* median multiplier when fully tired */
+#define WATCH_VREST_ALPHA   0.01f   /* resting-voltage EMA speed */
+#define WATCH_SOON_S        20      /* a nudge pulls the next look to about
+                                       here — jittered +-half, so noticing
+                                       never runs on a timetable */
+#define WATCH_SPIN_PCT      20      /* sweep duty (pre-remap), fresh */
+#define WATCH_SPIN_TIRED_PCT 8      /* sweep duty when fully tired */
+#define WATCH_SPIN_MIN_PCT  1       /* gaze-drag floor: linger, never stall */
+#define WATCH_GAZE_K        8.0f    /* duty shed per C of passing warmth */
+#define WATCH_GAZE_DEAD_C   0.8f    /* scene contrast to ignore (empty-room
+                                       max-med runs ~0.9-1.4, gestures.log) */
+#define WATCH_TURN_DEG      360.0f
+#define WATCH_TURN_TIMEOUT_S 30
+#define WATCH_WHIFF_C       1.5f    /* px over background = something's there
+                                       (zero false alarms, quiet_room_sat) */
+#define WATCH_WHIFF_LED_MS  500     /* amber "interesting" blip on whiff onset */
+#define WATCH_BG_ALPHA      0.02f   /* per-pixel background EMA */
+#define WATCH_BG_SETTLE_S   10      /* stillness before the background is
+                                       trusted (quiet_room_sat) */
+#define WATCH_CENTER_COL    3.2f    /* boresight column (measured) */
+#define WATCH_COL_DEG       7.5f    /* camera columns to degrees */
+#define WATCH_ORIENT_PCT    12      /* gentle turn-toward duty on a whiff */
+#define WATCH_ORIENT_MAX_COL 3      /* cap the head-turn at 3 columns (22.5) */
+#define WATCH_ORIENT_TIMEOUT_S 4
+
+typedef enum { WATCH_OFF = 0, WATCH_REST, WATCH_LOOK, WATCH_ORIENT } watch_state_t;
+
+static watch_state_t watch_state;
+static float watch_bg[64];
+static bool watch_bg_seed = true;
+static int64_t watch_bg_ok_at;     /* background trusted after this */
+static int64_t watch_deadline;     /* next scheduled look */
+static int64_t watch_look_until;   /* spin safety timeout */
+static float watch_yaw;
+static int watch_sign;
+static float watch_vrest;          /* resting pack volts, slow EMA */
+static bool watch_prev_held;
+static int64_t watch_whiff_led_until;
+static bool watch_whiff_prev;
+static int watch_orient_n;         /* signed columns of the pending head-turn */
+
+static float watch_frand(void)
+{
+    return ((esp_random() >> 8) + 0.5f) / 16777216.0f;   /* (0,1) */
+}
+
+/* "Soon", as a creature means it: WATCH_SOON_S +- half. */
+static int64_t watch_soon_us(void)
+{
+    return (int64_t)(WATCH_SOON_S * (0.5f + watch_frand()) * 1000000.0f);
+}
+
+/* 0 = fresh pack, 1 = tired, from the resting-voltage EMA. */
+static float watch_mood(void)
+{
+    if (watch_vrest == 0) {
+        return 0;
+    }
+    float m = (WATCH_FRESH_V - watch_vrest) / (WATCH_FRESH_V - WATCH_TIRED_V);
+    return m < 0 ? 0 : m > 1 ? 1 : m;
+}
+
+/* Log-normal rest interval, median stretched by mood. */
+static float watch_draw_s(void)
+{
+    float z = sqrtf(-2.0f * logf(watch_frand())) *
+              cosf(6.2831853f * watch_frand());
+    float med = WATCH_LOOK_MED_S *
+                (1.0f + watch_mood() * (WATCH_TIRED_SCALE - 1.0f));
+    float s = med * expf(WATCH_LOOK_SIGMA * z);
+    return s < WATCH_LOOK_MIN_S ? WATCH_LOOK_MIN_S
+         : s > WATCH_LOOK_MAX_S ? WATCH_LOOK_MAX_S : s;
+}
+
+static void watch_step(const int16_t px[64], const float dps[3],
+                       float volts, bool volts_ok)
+{
+    int64_t now = esp_timer_get_time();
+    if (volts_ok && cmd_left == 0 && cmd_right == 0 && volts > 3.0f) {
+        watch_vrest = (watch_vrest == 0)
+            ? volts : watch_vrest + WATCH_VREST_ALPHA * (volts - watch_vrest);
+    }
+    if (held) {
+        watch_state = WATCH_REST;   /* go limp; motors already stopped */
+        watch_prev_held = true;
+        return;
+    }
+    if (watch_prev_held) {
+        watch_prev_held = false;
+        watch_bg_seed = true;       /* new spot, new background */
+        watch_deadline = now + watch_soon_us();
+        printf("watch: new spot, looking soon\n");
+    }
+
+    float t[64];
+    float maxt = -100, sum = 0;
+    for (int i = 0; i < 64; i++) {
+        t[i] = px[i] * 0.25f;
+        sum += t[i];
+        if (t[i] > maxt) {
+            maxt = t[i];
+        }
+    }
+    float mean = sum / 64;
+
+    switch (watch_state) {
+    case WATCH_REST: {
+        if (watch_bg_seed) {
+            memcpy(watch_bg, t, sizeof(watch_bg));
+            watch_bg_ok_at = now + WATCH_BG_SETTLE_S * 1000000LL;
+            watch_bg_seed = false;
+        }
+        float maxdev = -100;
+        int maxdev_i = 0;
+        for (int i = 0; i < 64; i++) {
+            float dev = t[i] - watch_bg[i];
+            if (dev > maxdev) {
+                maxdev = dev;
+                maxdev_i = i;
+            }
+        }
+        bool whiff = maxdev >= WATCH_WHIFF_C && now > watch_bg_ok_at;
+        if (maxdev < WATCH_WHIFF_C) {
+            /* learn only quiet frames, so a visitor can't become wall */
+            for (int i = 0; i < 64; i++) {
+                watch_bg[i] += WATCH_BG_ALPHA * (t[i] - watch_bg[i]);
+            }
+        }
+        if (whiff) {
+            if (!watch_whiff_prev) {   /* a blip on arrival: "interesting" */
+                rgb_set(48, 24, 0);
+                watch_whiff_led_until = now + WATCH_WHIFF_LED_MS * 1000LL;
+                /* and a small head-turn toward the warmth */
+                int n = (int)lroundf((maxdev_i % 8) - WATCH_CENTER_COL);
+                n = n > WATCH_ORIENT_MAX_COL ? WATCH_ORIENT_MAX_COL
+                  : n < -WATCH_ORIENT_MAX_COL ? -WATCH_ORIENT_MAX_COL : n;
+                if (n != 0) {
+                    watch_orient_n = n;
+                    watch_yaw = 0;
+                    watch_look_until = now + WATCH_ORIENT_TIMEOUT_S * 1000000LL;
+                    int sign = n > 0 ? 1 : -1;
+                    drive(sign * WATCH_ORIENT_PCT, -sign * WATCH_ORIENT_PCT);
+                    watch_whiff_prev = true;
+                    watch_state = WATCH_ORIENT;
+                    break;
+                }
+            }
+            int64_t soon = watch_soon_us();
+            if (watch_deadline > now + soon) {
+                watch_deadline = now + soon;
+                printf("watch: whiff (+%.1f C), looking soon\n", maxdev);
+            }
+        }
+        watch_whiff_prev = whiff;
+        if (watch_whiff_led_until != 0 && now > watch_whiff_led_until) {
+            rgb_set(RGB_GREEN);   /* blip over */
+            watch_whiff_led_until = 0;
+        }
+        if (now >= watch_deadline) {
+            watch_yaw = 0;
+            watch_sign = (esp_random() & 1) ? 1 : -1;
+            watch_look_until = now + WATCH_TURN_TIMEOUT_S * 1000000LL;
+            watch_whiff_led_until = 0;
+            watch_state = WATCH_LOOK;
+            rgb_set(RGB_BLUE);
+            printf("watch: looking around\n");
+        }
+        break;
+    }
+    case WATCH_LOOK: {
+        /* the gaze lingers: passing warmth sheds sweep duty */
+        float drag = (maxt - mean) - WATCH_GAZE_DEAD_C;
+        if (drag < 0) {
+            drag = 0;
+        }
+        int base = WATCH_SPIN_PCT -
+                   (int)(watch_mood() * (WATCH_SPIN_PCT - WATCH_SPIN_TIRED_PCT));
+        int duty = base - (int)(WATCH_GAZE_K * drag);
+        if (duty < WATCH_SPIN_MIN_PCT) {
+            duty = WATCH_SPIN_MIN_PCT;
+        }
+        drive(watch_sign * duty, -watch_sign * duty);
+        watch_yaw += dps[2] * (1.0f / TICK_HZ);
+        if (fabsf(watch_yaw) >= WATCH_TURN_DEG || now > watch_look_until) {
+            drive(0, 0);
+            rgb_set(RGB_GREEN);
+            watch_bg_seed = true;   /* heading moved, background is stale */
+            float rest = watch_draw_s();
+            watch_deadline = now + (int64_t)(rest * 1000000.0f);
+            watch_state = WATCH_REST;
+            printf("watch: resting %.0f s (mood %.2f, %.2f V)\n",
+                   rest, watch_mood(), watch_vrest);
+        }
+        break;
+    }
+    case WATCH_ORIENT: {
+        watch_yaw += dps[2] * (1.0f / TICK_HZ);
+        if (fabsf(watch_yaw) >= abs(watch_orient_n) * WATCH_COL_DEG ||
+            now > watch_look_until) {
+            drive(0, 0);
+            /* the scene shifted with the turn: slide the background the
+             * same number of columns so the visitor stays distinct from
+             * the wallpaper; only the newly revealed edge is reseeded */
+            float old[64];
+            memcpy(old, watch_bg, sizeof(old));
+            for (int r = 0; r < 8; r++) {
+                for (int c = 0; c < 8; c++) {
+                    int src = c + watch_orient_n;
+                    watch_bg[r * 8 + c] = (src >= 0 && src < 8)
+                        ? old[r * 8 + src] : t[r * 8 + c];
+                }
+            }
+            printf("watch: turned %d deg toward the warmth\n",
+                   (int)(watch_orient_n * WATCH_COL_DEG));
+            watch_state = WATCH_REST;
+        }
+        break;
+    }
+    default:
+        break;
+    }
+}
+
 /* Recorder: 10 Hz snapshots of every sensor plus the commanded motor
- * duties and any bump/stuck event, into a PSRAM ring for bench
+ * duties, held state and watcher state, into a PSRAM ring for bench
  * analysis (r to record, d to dump as CSV). PSRAM is wiped by reset —
  * and `idf.py monitor` resets the chip on connect, so retrieve
  * untethered runs with --no-reset. */
@@ -479,6 +717,7 @@ typedef struct {
     float dps[3], g[3];
     float volts, ma;
     uint8_t held;               /* 1 while he's in someone's hands */
+    uint8_t ws;                 /* watcher state: 0 off, 1 rest, 2 look */
 } rec_t;
 
 static rec_t *rec_buf;
@@ -492,10 +731,16 @@ static void tick_task(void *arg)
     TickType_t wake = xTaskGetTickCount();
     while (1) {
         xTaskDelayUntil(&wake, pdMS_TO_TICKS(1000 / TICK_HZ));
-        float dps[3], g[3];
+        float dps[3], g[3], volts = 0, ma = 0;
+        int16_t pxbuf[64];
         bool imu_ok = lsm_ok && lsm_read(dps, g) == ESP_OK;
+        bool px_ok = amg_ok && amg_read_pixels(pxbuf) == ESP_OK;
+        bool pwr_ok = ina_ok && ina_read(&volts, &ma) == ESP_OK;
         if (imu_ok) {
             held_check(dps, g);
+        }
+        if (watch_state != WATCH_OFF && imu_ok && px_ok) {
+            watch_step(pxbuf, dps, volts, pwr_ok);
         }
         if (!rec_on || rec_cap == 0) {
             continue;
@@ -505,17 +750,19 @@ static void tick_task(void *arg)
         r->ms = esp_timer_get_time() / 1000;
         r->left = cmd_left;
         r->right = cmd_right;
-        if (amg_ok) {
-            amg_read_pixels(r->px);
+        if (px_ok) {
+            memcpy(r->px, pxbuf, sizeof(r->px));
         }
         if (imu_ok) {
             memcpy(r->dps, dps, sizeof(r->dps));
             memcpy(r->g, g, sizeof(r->g));
         }
-        if (ina_ok) {
-            ina_read(&r->volts, &r->ma);
+        if (pwr_ok) {
+            r->volts = volts;
+            r->ma = ma;
         }
         r->held = held;
+        r->ws = watch_state;
         rec_head = (rec_head + 1) % rec_cap;
         if (rec_len < rec_cap) {
             rec_len++;
@@ -544,16 +791,16 @@ static void rec_dump(void)
         printf("still recording; r to stop first\n");
         return;
     }
-    printf("ms,left,right,volts,ma,held,gx,gy,gz,ax,ay,az");
+    printf("ms,left,right,volts,ma,held,ws,gx,gy,gz,ax,ay,az");
     for (int i = 0; i < 64; i++) {
         printf(",p%d", i);
     }
     printf("\n");
     for (int i = 0; i < rec_len; i++) {
         rec_t *r = &rec_buf[(rec_head - rec_len + i + rec_cap) % rec_cap];
-        printf("%lu,%d,%d,%.2f,%.0f,%d,%.1f,%.1f,%.1f,%.3f,%.3f,%.3f",
+        printf("%lu,%d,%d,%.2f,%.0f,%d,%d,%.1f,%.1f,%.1f,%.3f,%.3f,%.3f",
                (unsigned long)r->ms, r->left, r->right, r->volts, r->ma,
-               r->held,
+               r->held, r->ws,
                r->dps[0], r->dps[1], r->dps[2], r->g[0], r->g[1], r->g[2]);
         for (int p = 0; p < 64; p++) {
             printf(",%.2f", r->px[p] * 0.25f);
@@ -608,6 +855,7 @@ static void print_help(void)
            "  t                  read thermal mean\n"
            "  v                  read pack voltage and current\n"
            "  g                  read gyro and accelerometer\n"
+           "  w                  watcher on/off: rest, look around now and then\n"
            "  c [secs]           motor calibration script, after an optional\n"
            "                     delay to get him on the floor (r first)\n"
            "  p <which>          perform: a = I'm-alive, f = found-you\n"
@@ -681,6 +929,22 @@ static void handle_line(char *line)
         }
     } else if (strcmp(line, "d") == 0) {
         rec_dump();
+    } else if (strcmp(line, "w") == 0) {
+        if (watch_state != WATCH_OFF) {
+            watch_state = WATCH_OFF;
+            drive(0, 0);
+            rgb_set(RGB_GREEN);
+            printf("watcher: off\n");
+        } else if (!amg_ok) {
+            printf("no thermal camera, no watcher\n");
+        } else {
+            watch_bg_seed = true;
+            watch_prev_held = false;
+            watch_deadline = esp_timer_get_time() +
+                             watch_soon_us();   /* first look soon */
+            watch_state = WATCH_REST;
+            printf("watcher: on (w to stop)\n");
+        }
     } else if (line[0] == 'c' && (line[1] == '\0' || line[1] == ' ')) {
         int delay = 0;
         sscanf(line, "c %d", &delay);
@@ -704,9 +968,25 @@ void app_main(void)
     ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 256, 0, 0, NULL, 0));
     print_help();
 
+    /* The performance is for switch-on only. A brownout, panic or a
+     * glitched EN line (USB DTR/RTS) also lands here, and answering a
+     * brownout with a motor dance invites the next one. */
+    esp_reset_reason_t rr = esp_reset_reason();
+    printf("reset reason: %d (%s)\n", rr,
+           rr == ESP_RST_POWERON ? "power-on" :
+           rr == ESP_RST_BROWNOUT ? "brownout" :
+           rr == ESP_RST_PANIC ? "panic" :
+           rr == ESP_RST_SW ? "software" :
+           rr == ESP_RST_EXT ? "external pin" :
+           rr == ESP_RST_INT_WDT || rr == ESP_RST_TASK_WDT ||
+           rr == ESP_RST_WDT ? "watchdog" : "other");
     if (amg_ok && ina_ok && lsm_ok) {
         rgb_set(RGB_GREEN);
-        perform_alive();
+        if (rr == ESP_RST_POWERON) {
+            perform_alive();
+        } else {
+            printf("startup: skipping the performance (not a fresh power-on)\n");
+        }
         printf("startup: all checks passed\n");
     } else {
         printf("startup: checks failed, staying red and still\n");
