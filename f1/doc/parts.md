@@ -11,17 +11,8 @@ https://thepihut.com/products/4-x-aa-battery-holder-with-on-off-switch
 
 4 off AA NiMH rechargeable batteries.
 
-Veroboard (stripboard) — two pieces: power board (cavity) and ESP32 board
-(shelf).
-
-Plastic sheet for the shelf.
-
-M3 standoffs/posts, cavity to shelf.
-
-2 off M2.5 6mm standoffs for the AMG8833 (longer if its view needs
-clearing).
-
-Tinned copper wire.
+Veroboard (stripboard) - two pieces: power board (cavity) and ESP32 board
+(top).
 
 Electrolytic capacitor, 470-1000uF 10V+.
 
@@ -54,8 +45,6 @@ https://thepihut.com/products/esp32-s3-devkitc-1-development-board
 
 Panel Mount Extension USB Cable - Micro-USB Male to Female
 https://thepihut.com/products/panel-mount-extension-usb-cable-micro-b-male-to-micro-b-female
-
-Misc M3 screws and bolts.
 
 ## Notes
 

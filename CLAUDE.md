@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Fred is a fleet of small home robots (f0..fN), one directory per robot. Two active builds:
 
 - **f1** (building now): spins slowly until he senses heat (via an AMG8833 8x8 IR thermal camera), then moves towards it. ESP32-S3-DevKitC-1 on the blue octagon chassis, two TT 1:90 motors and a caster through a single DRV8833, 4xAA NiMH pack.
-- **f2** (next; parts ordered): f1 evolved — Waveshare NS chassis, four TT motors (paired per side, skid steer) through two DRV8833s, an I2C suite (ToF, buzzer, LED matrix), 2S LiPo with a 5V buck, switched by an XT60 pull-loop key.
+- **f2** (next; parts not ordered - design can change): f1 evolved — Waveshare NS chassis, four TT motors (paired per side, skid steer) through two DRV8833s, an I2C suite (ToF, buzzer, LED matrix), 2S LiPo with a 5V buck, switched by an XT60 pull-loop key.
 
 ## Layout
 
@@ -55,3 +55,5 @@ Keep each robot's `doc/schematic.md` and the `#define`s in its `firmware_main.c`
 - The firmware uses the newer `driver/i2c_master.h` API (esp_driver_i2c component), not the legacy I2C driver.
 - AMG8833 pixels are 12-bit two's complement, 0.25 °C per LSB, 64 pixels read from register 0x80.
 - Naming: the fleet is f0..fN, each robot evolving from the last ("fleet", not "herd"). f0 is the chipless button-bot and must stay code-free.
+- Parts lists do not include specific details that could change from build to build if replicated like veroboard, wire, spacers, power switches and nuts/bolts etc.
+ 
