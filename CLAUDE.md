@@ -13,7 +13,7 @@ Fred is a fleet of small home robots (f0..fN), one directory per robot. Two acti
 
 - `README.md` — the fleet: members, common patterns, ESP-NOW comms protocol.
 - `f0/` — chipless analog button-bot; docs only (`README.md`, `doc/parts.md`, `doc/schematic.svg`). No code, by rule.
-- `f1/`, `f2/` — one directory per robot, same shape: `README.md`; `doc/schematic.md` (wiring and GPIO assignments), `doc/parts.md`, `doc/firmware.md` (behaviour design and measured facts); `firmware/` — an ESP-IDF project (target: esp32s3) with all application code in `firmware/main/firmware_main.c`, a single C file; `log/` — reference recorder dumps worth keeping, named descriptively (e.g. `quiet_room_spin.log`) — transient test dumps stay untracked in `firmware/` as `log.firmware.*`.
+- `f1/`, `f2/` — one directory per robot, same shape: `README.md`; `doc/schematic.md` (wiring and GPIO assignments), `doc/parts.md`, `doc/firmware.md` (behaviour design and measured facts), `doc/notes.md` (build lessons learned — consult before wiring the next robot); `firmware/` — an ESP-IDF project (target: esp32s3) with all application code in `firmware/main/firmware_main.c`, a single C file; `log/` — reference recorder dumps worth keeping, named descriptively (e.g. `quiet_room_spin.log`) — transient test dumps stay untracked in `firmware/` as `log.firmware.*`.
 
 ## Build and flash
 
