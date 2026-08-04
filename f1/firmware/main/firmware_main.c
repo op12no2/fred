@@ -423,6 +423,8 @@ static void motors_init(void)
  * only while the motors are idle, which for the watcher is nearly
  * always. Violet LED while held; logged in the `held` column. */
 #define HELD_DPS      20.0f   /* sustained rotation while idle = in hands */
+#define HELD_DRIVE_AZ 0.90f   /* sustained tilt (~25 deg) while driving =
+                                 lifted; the habitat's floors are flat */
 #define HELD_ON_TICKS 3       /* a knock is one tick; a carry is many */
 #define HELD_QUIET_DPS 5.0f
 #define HELD_OFF_MS   1000    /* this long quiet again = set down */
@@ -431,16 +433,20 @@ static bool held;
 static int held_ticks;
 static int64_t held_quiet_since;
 
-static void held_check(const float dps[3])
+static void held_check(const float dps[3], const float g[3])
 {
     float gmag = sqrtf(dps[0] * dps[0] + dps[1] * dps[1] + dps[2] * dps[2]);
     int64_t now = esp_timer_get_time();
     if (!held) {
+        /* Idle, rotation betrays hands; driving, rotation is normal and
+         * tilt is the witness instead. */
         bool idle = cmd_left == 0 && cmd_right == 0;
-        held_ticks = (idle && gmag > HELD_DPS) ? held_ticks + 1 : 0;
+        bool in_hands = idle ? gmag > HELD_DPS : g[2] < HELD_DRIVE_AZ;
+        held_ticks = in_hands ? held_ticks + 1 : 0;
         if (held_ticks >= HELD_ON_TICKS) {
             held = true;
             held_quiet_since = 0;
+            drive(0, 0);   /* wheels stop, and the driver sleeps, in hands */
             rgb_set(48, 0, 48);   /* violet: airborne */
             printf("picked up!\n");
         }
@@ -489,7 +495,7 @@ static void tick_task(void *arg)
         float dps[3], g[3];
         bool imu_ok = lsm_ok && lsm_read(dps, g) == ESP_OK;
         if (imu_ok) {
-            held_check(dps);
+            held_check(dps, g);
         }
         if (!rec_on || rec_cap == 0) {
             continue;

@@ -29,10 +29,21 @@ stillness. The gyro's real gift is knowing when he's been picked up.
   one function per performance, repertoire grows.
 - **RGB status** — red boot/fail, green well, blue performing, violet
   while held.
-- **Pickup detection** — sustained rotation (>20 dps, 3 ticks) while
-  the motors are idle means he's in someone's hands (handling is a
-  150:1 signal); a quiet second means set down. `held` column,
-  "picked up!" / "set down" on the console, violet LED.
+- **Pickup detection** — while idle, sustained rotation (>20 dps,
+  3 ticks) means he's in someone's hands (handling is a 150:1 signal);
+  while driving, sustained tilt (az < 0.90, ~25°) is the witness
+  instead, since rotation is then normal and the habitat's floors are
+  flat. The tilt witness is deliberately broader than hands: it also
+  fires when he's climbing an obstacle, teetering on an edge, or
+  falling (free-fall reads az → 0) — any "ground no longer properly
+  under me" kills the motors (and so sleeps the driver) within
+  ~300 ms, and the pre-pickup command is not restored on set-down, so
+  a rescued or landed f1 stays put rather than lunging off with stale
+  orders. A quiet second means set down. `held` column, "picked up!" /
+  "set down" on the console, violet LED. Validated idle-side (log
+  20260804161731): 3 pickups detected, 17 knocks up to 148 dps
+  rejected — knock magnitude out-spikes carries, only duration
+  separates them.
 - **Recorder** — `r`/`d`, 10 Hz all-sensor CSV (see below).
 - **Calibration** — `c [secs]`, scripted open-loop motor runs.
 
