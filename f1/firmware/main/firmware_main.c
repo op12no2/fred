@@ -431,9 +431,17 @@ static void motors_init(void)
 #define HELD_QUIET_DPS 5.0f
 #define HELD_OFF_MS   1000    /* this long quiet again = set down */
 
+/* Gesture command, Foundation-style: two brief lift-downs in quick
+ * succession toggle the watcher, for when the console is long gone. */
+#define GEST_LIFT_MAX_S 4     /* each lift-down this brief (incl. quiet 1 s) */
+#define GEST_GAP_MAX_S  3     /* and the next lift this soon after set-down */
+
 static bool held;
 static int held_ticks;
 static int64_t held_quiet_since;
+static int64_t held_since, gest_setdown_at;
+static int gest_count;
+static volatile bool gest_toggle;   /* double lift-down seen: flip the watcher */
 
 static void held_check(const float dps[3], const float g[3])
 {
@@ -448,6 +456,10 @@ static void held_check(const float dps[3], const float g[3])
         if (held_ticks >= HELD_ON_TICKS) {
             held = true;
             held_quiet_since = 0;
+            if (now - gest_setdown_at > GEST_GAP_MAX_S * 1000000LL) {
+                gest_count = 0;   /* too slow, the ritual starts over */
+            }
+            held_since = now;
             drive(0, 0);   /* wheels stop, and the driver sleeps, in hands */
             rgb_set(48, 0, 48);   /* violet: airborne */
             printf("picked up!\n");
@@ -460,6 +472,15 @@ static void held_check(const float dps[3], const float g[3])
             held_ticks = 0;
             rgb_set(RGB_GREEN);
             printf("set down\n");
+            if (now - held_since < GEST_LIFT_MAX_S * 1000000LL) {
+                if (++gest_count >= 2) {
+                    gest_count = 0;
+                    gest_toggle = true;
+                }
+            } else {
+                gest_count = 0;
+            }
+            gest_setdown_at = now;
         }
     } else {
         held_quiet_since = 0;
@@ -551,6 +572,34 @@ static float watch_draw_s(void)
     float s = med * expf(WATCH_LOOK_SIGMA * z);
     return s < WATCH_LOOK_MIN_S ? WATCH_LOOK_MIN_S
          : s > WATCH_LOOK_MAX_S ? WATCH_LOOK_MAX_S : s;
+}
+
+/* Shared by the console (w) and the double lift-down gesture. The
+ * winks are the acknowledgment: blue-blue = watching, amber = not. */
+static void watch_toggle(void)
+{
+    if (watch_state != WATCH_OFF) {
+        watch_state = WATCH_OFF;
+        drive(0, 0);
+        rgb_set(48, 24, 0);
+        vTaskDelay(pdMS_TO_TICKS(400));
+        rgb_set(RGB_GREEN);
+        printf("watcher: off\n");
+    } else if (!amg_ok) {
+        printf("no thermal camera, no watcher\n");
+    } else {
+        for (int i = 0; i < 2; i++) {
+            rgb_set(RGB_BLUE);
+            vTaskDelay(pdMS_TO_TICKS(150));
+            rgb_set(RGB_GREEN);
+            vTaskDelay(pdMS_TO_TICKS(150));
+        }
+        watch_bg_seed = true;
+        watch_prev_held = false;
+        watch_deadline = esp_timer_get_time() + watch_soon_us();
+        watch_state = WATCH_REST;
+        printf("watcher: on (w or double lift-down to stop)\n");
+    }
 }
 
 static void watch_step(const int16_t px[64], const float dps[3],
@@ -739,6 +788,10 @@ static void tick_task(void *arg)
         if (imu_ok) {
             held_check(dps, g);
         }
+        if (gest_toggle) {
+            gest_toggle = false;
+            watch_toggle();
+        }
         if (watch_state != WATCH_OFF && imu_ok && px_ok) {
             watch_step(pxbuf, dps, volts, pwr_ok);
         }
@@ -855,7 +908,7 @@ static void print_help(void)
            "  t                  read thermal mean\n"
            "  v                  read pack voltage and current\n"
            "  g                  read gyro and accelerometer\n"
-           "  w                  watcher on/off: rest, look around now and then\n"
+           "  w                  watcher on/off (or: double lift-down gesture)\n"
            "  c [secs]           motor calibration script, after an optional\n"
            "                     delay to get him on the floor (r first)\n"
            "  p <which>          perform: a = I'm-alive, f = found-you\n"
@@ -930,21 +983,7 @@ static void handle_line(char *line)
     } else if (strcmp(line, "d") == 0) {
         rec_dump();
     } else if (strcmp(line, "w") == 0) {
-        if (watch_state != WATCH_OFF) {
-            watch_state = WATCH_OFF;
-            drive(0, 0);
-            rgb_set(RGB_GREEN);
-            printf("watcher: off\n");
-        } else if (!amg_ok) {
-            printf("no thermal camera, no watcher\n");
-        } else {
-            watch_bg_seed = true;
-            watch_prev_held = false;
-            watch_deadline = esp_timer_get_time() +
-                             watch_soon_us();   /* first look soon */
-            watch_state = WATCH_REST;
-            printf("watcher: on (w to stop)\n");
-        }
+        watch_toggle();
     } else if (line[0] == 'c' && (line[1] == '\0' || line[1] == ' ')) {
         int delay = 0;
         sscanf(line, "c %d", &delay);

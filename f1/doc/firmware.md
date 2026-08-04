@@ -43,7 +43,11 @@ stillness. The gyro's real gift is knowing when he's been picked up.
   "set down" on the console, violet LED. Validated idle-side (log
   20260804161731): 3 pickups detected, 17 knocks up to 148 dps
   rejected — knock magnitude out-spikes carries, only duration
-  separates them.
+  separates them. A Foundation-style gesture command rides on it:
+  **two brief lift-downs in quick succession toggle the watcher**
+  (each under ~4 s, next lift within ~3 s) — blue-blue winks
+  acknowledge "watching", one amber wink "not" — so an untethered f1
+  needs no console to go on or off duty.
 - **Recorder** — `r`/`d`, 10 Hz all-sensor CSV (see below).
 - **Calibration** — `c [secs]`, scripted open-loop motor runs.
 
