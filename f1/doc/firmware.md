@@ -74,6 +74,16 @@ Console: `m s t v g c p l r d ?`.
   are invisible to the accelerometer.
 - **Gyro**: z bias −0.7 dps at rest; handling (pickup) is a 150:1
   signal.
+- **Coaxing, measured** (gestures.log — acts clapperboarded by
+  lift/down `held` blips): against a per-pixel background a *standing*
+  person at 2 m reads +3.6–4.1 °C (double the old frame-median
+  estimate); standing at 3 m is marginal (+1.3) but **crouching** at
+  3 m reads +2.0 — and at 1 m fills 14 pixels vs ~5 standing, since
+  standing close shows him only legs. Walk-pasts spike hard (+5.8) but
+  dwell 1–3 s; every coaxing act sustained 76–80% presence — **dwell
+  ≥ ~5 s separates transit from visit** with no overlap. Approach and
+  retreat are clean monotonic blob-size ramps. Response probability ∝
+  blob size × dwell falls straight out.
 - **The stationary room** (quiet_room_sat.log, 4 humanless minutes):
   per-pixel noise ~0.3 °C; frame median steady to ±0.2 °C; the worst
   any pixel strayed above its own long mean was 1.45 °C, so **a
@@ -109,8 +119,11 @@ capacity); `d` dumps it as CSV over the console. Columns:
 
 Runs worth keeping move to `f1/log/` with descriptive names
 (`quiet_room_spin.log` — the 32-lap empty-room thermal panorama;
-`quiet_room_sat.log` — the stationary background/noise run); throwaway
-dumps stay untracked in `firmware/` as `log.firmware.<timestamp>.txt`.
+`quiet_room_sat.log` — the stationary background/noise run;
+`gestures.log` — walk-pasts, standing/crouching range ladders and a
+retreat/approach, acts delimited by lift/down blips in the `held`
+column); throwaway dumps stay untracked in `firmware/` as
+`log.firmware.<timestamp>.txt`.
 
 Two wrinkles in retrieving a run, both monitor-side. PSRAM is wiped by
 reset, and `idf.py monitor` resets the chip on connect — always attach
