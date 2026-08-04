@@ -3,6 +3,7 @@
  * onboard RGB status LED, and a serial test console (type '?' in
  * idf.py monitor). */
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +15,7 @@
 #include "driver/rmt_tx.h"
 #include "driver/uart.h"
 #include "esp_heap_caps.h"
+#include "esp_random.h"
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -49,6 +51,9 @@
 #define DRV_SLP_GPIO      10   /* DRV8833 nSLEEP: high = enabled */
 
 #define PWM_FREQ_HZ     25000  /* above audible, well under DRV8833's max */
+#define MOTOR_MIN_PCT   25     /* measured deadband (cal 20260804133108): no
+                                  motion at 20, reliable from rest at 25;
+                                  below it wheels stall-or-creep at random */
 #define PWM_RES         LEDC_TIMER_10_BIT
 #define PWM_MAX         (1 << 10)   /* LEDC duty range is [0, 2^res] */
 
@@ -285,7 +290,13 @@ static void motor_set(ledc_channel_t in1, ledc_channel_t in2, int pct)
     } else if (pct < -100) {
         pct = -100;
     }
-    uint32_t duty = PWM_MAX * abs(pct) / 100;
+    /* Remap nonzero magnitudes onto the live range above the deadband,
+     * so small commands crawl instead of gambling on breakaway. */
+    int mag = abs(pct);
+    if (mag > 0) {
+        mag = MOTOR_MIN_PCT + mag * (100 - MOTOR_MIN_PCT) / 100;
+    }
+    uint32_t duty = PWM_MAX * mag / 100;
     if (pct > 0) {
         pwm_set(in1, PWM_MAX);
         pwm_set(in2, PWM_MAX - duty);
@@ -301,23 +312,35 @@ static void motor_set(ledc_channel_t in1, ledc_channel_t in2, int pct)
 /* True when the pack is supplying current. With the pack off and USB in,
  * the 6V rail is back-fed through the DevKit's diode and the pack shunt
  * carries nothing — running motors then would pull amps through that
- * diode (see schematic.md). The pack covers the ESP32's ~100 mA idle
- * draw whenever it's on, so a near-zero shunt reading means USB only. */
+ * diode (see schematic.md). The pack covers the ESP32's idle draw
+ * whenever it's on (measured 43-59 mA untethered, ~0 on USB), so a
+ * near-zero shunt reading means USB only. */
 static bool pack_live(void)
 {
     float volts, ma;
     if (!ina_ok || ina_read(&volts, &ma) != ESP_OK) {
         return true;   /* can't tell — assume the pack is on */
     }
-    return ma > 30.0f;
+    return ma > 20.0f;
 }
 
-static int16_t cmd_left, cmd_right;   /* last commanded duties, for the log */
+/* No two TT motors are matched: the trim is added to the left duty
+ * (sign-aware, so it corrects magnitude in reverse too) whenever both
+ * wheels are driven. Set by open-loop console test, not by fitting hunt
+ * logs — those commands come from steering feedback and the fit's
+ * intercept is biased (it once said -6, which itself caused a left
+ * veer). Measured: actual duties 49/50 drive straight. */
+#define DRIVE_TRIM_PCT  -1
+
+static int16_t cmd_left, cmd_right;   /* commanded duties pre-trim, for the log */
 
 static void drive(int left_pct, int right_pct)
 {
     cmd_left = left_pct;
     cmd_right = right_pct;
+    if (left_pct != 0 && right_pct != 0) {
+        left_pct += (left_pct > 0) ? DRIVE_TRIM_PCT : -DRIVE_TRIM_PCT;
+    }
     if (!pack_live()) {
         printf("motors (traced, usb power only): left %d right %d\n",
                left_pct, right_pct);
@@ -344,6 +367,29 @@ static void perform_alive(void)
     rgb_set(RGB_GREEN);
 }
 
+/* "Found you!": a quick excited shimmy, used when the hunt spots heat. */
+static void perform_found(void)
+{
+    for (int i = 0; i < 2; i++) {
+        drive(40, -40);
+        vTaskDelay(pdMS_TO_TICKS(120));
+        drive(-40, 40);
+        vTaskDelay(pdMS_TO_TICKS(120));
+    }
+    drive(0, 0);
+}
+
+/* One blue wink per second — the fuse for delayed starts. */
+static void countdown_winks(int secs)
+{
+    for (int i = 0; i < secs; i++) {
+        rgb_set(RGB_BLUE);
+        vTaskDelay(pdMS_TO_TICKS(200));
+        rgb_set(0, 0, 0);
+        vTaskDelay(pdMS_TO_TICKS(800));
+    }
+}
+
 static void motors_init(void)
 {
     ledc_timer_config_t timer_cfg = {
@@ -368,11 +414,142 @@ static void motors_init(void)
     gpio_set_level(DRV_SLP_GPIO, 1);
 }
 
+#define TICK_HZ 10   /* the sensor/behaviour heartbeat */
+
+/* Bump/stuck detection, evaluated every tick from the IMU while the
+ * motors are commanded. Two events: a jolt (drove into something) and
+ * stuck (commanded but not actually moving — gearbox vibration is the
+ * witness: <2 mg at rest, >29 mg rolling, cal 20260804133108). All
+ * first guesses — tune from recorded logs of deliberate collisions. */
+#define BUMP_JOLT_G    0.20f   /* accel deviation from 1 g = collision */
+#define STUCK_VIB_G    0.010f  /* below this vibration while commanded = stuck */
+#define STUCK_GRACE_MS 1000    /* let wheels spin up before calling stuck */
+
+/* Escape reflex: on bump/stuck, reverse for a moment, then a gyro-
+ * measured about-turn — 180 plus jitter, since exact 180s ping-pong in
+ * corners — and carry on with the pre-bump command. Bumps arriving
+ * right after an escape mean still trapped; after a few tries he stops
+ * rather than thrash. Toggle with b; the cal script disables it. */
+#define ESC_REV_MS       1000
+#define ESC_TURN_PCT     40    /* pre-remap spin duty for the about-turn */
+#define ESC_TURN_MIN_DEG 150
+#define ESC_TURN_MAX_DEG 210
+#define ESC_TIMEOUT_MS   4500  /* turn safety net */
+#define ESC_RETRY_S      3     /* a bump this soon after escaping = trapped */
+#define ESC_MAX_TRIES    4
+
+typedef enum { ESC_NONE = 0, ESC_REV, ESC_TURN } esc_state_t;
+
+static esc_state_t esc_state;
+static bool esc_enable = true;
+static int64_t esc_phase_end;
+static float esc_yaw, esc_yaw_target;
+static int esc_turn_sign;
+static int16_t esc_resume_l, esc_resume_r;
+static int esc_tries;
+static int64_t esc_done_at;
+
+static float vib_ema;             /* EMA of |d(accel magnitude)| per tick */
+static float amag_prev = 1.0f;
+static int64_t moving_since;
+static int64_t bump_led_until;
+
+/* Returns 0 quiet, 1 jolt, 2 stuck; logged per tick for tuning. */
+static uint8_t bump_check(const float g[3])
+{
+    float amag = sqrtf(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]);
+    float d = fabsf(amag - amag_prev);
+    amag_prev = amag;
+    vib_ema += 0.2f * (d - vib_ema);
+
+    if (esc_state != ESC_NONE) {
+        return 0;   /* his own escape jerks must not retrigger */
+    }
+    int64_t now = esp_timer_get_time();
+    bool cmd_moving = (cmd_left != 0 || cmd_right != 0) && pack_live();
+    if (!cmd_moving) {
+        moving_since = 0;
+    } else if (moving_since == 0) {
+        moving_since = now;
+        vib_ema = STUCK_VIB_G * 4;   /* fresh benefit of the doubt */
+    }
+
+    uint8_t event = 0;
+    if (cmd_moving && fabsf(amag - 1.0f) > BUMP_JOLT_G) {
+        event = 1;
+    } else if (cmd_moving && now - moving_since > STUCK_GRACE_MS * 1000 &&
+               vib_ema < STUCK_VIB_G) {
+        event = 2;
+    }
+    if (event) {
+        rgb_set(RGB_RED);   /* a visible ouch, without stopping anything */
+        bump_led_until = now + 500 * 1000;
+        printf(event == 1 ? "bump!\n" : "stuck!\n");
+    } else if (bump_led_until != 0 && now > bump_led_until) {
+        rgb_set(RGB_GREEN);
+        bump_led_until = 0;
+    }
+    return event;
+}
+
+static void esc_step(uint8_t bump, const float dps[3])
+{
+    int64_t now = esp_timer_get_time();
+    switch (esc_state) {
+    case ESC_NONE:
+        if (bump == 0) {
+            return;
+        }
+        esc_tries = (esc_done_at != 0 &&
+                     now - esc_done_at < ESC_RETRY_S * 1000000LL)
+                        ? esc_tries + 1 : 1;
+        if (esc_tries > ESC_MAX_TRIES) {
+            drive(0, 0);
+            printf("escape: still trapped after %d tries, stopping\n",
+                   ESC_MAX_TRIES);
+            return;
+        }
+        esc_resume_l = cmd_left;
+        esc_resume_r = cmd_right;
+        /* back away from the bump — or forward, if he was reversing */
+        int back = (esc_resume_l + esc_resume_r >= 0) ? -1 : 1;
+        drive(back * 40, back * 40);
+        esc_state = ESC_REV;
+        esc_phase_end = now + ESC_REV_MS * 1000;
+        break;
+
+    case ESC_REV:
+        if (now < esc_phase_end) {
+            return;
+        }
+        esc_yaw = 0;
+        esc_yaw_target = ESC_TURN_MIN_DEG +
+            (esp_random() % (ESC_TURN_MAX_DEG - ESC_TURN_MIN_DEG + 1));
+        esc_turn_sign = (esp_random() & 1) ? 1 : -1;
+        drive(esc_turn_sign * ESC_TURN_PCT, -esc_turn_sign * ESC_TURN_PCT);
+        esc_state = ESC_TURN;
+        esc_phase_end = now + ESC_TIMEOUT_MS * 1000;
+        break;
+
+    case ESC_TURN:
+        esc_yaw += dps[2] * (1.0f / TICK_HZ);
+        if (fabsf(esc_yaw) < esc_yaw_target && now < esc_phase_end) {
+            return;
+        }
+        drive(esc_resume_l, esc_resume_r);   /* carry on as before */
+        esc_state = ESC_NONE;
+        esc_done_at = now;
+        printf("escape: reversed, turned %.0f deg, carrying on\n",
+               fabsf(esc_yaw));
+        break;
+    }
+}
+
 /* Recorder: 10 Hz snapshots of every sensor plus the commanded motor
- * duties, into a PSRAM ring for bench analysis (r to record, d to dump
- * as CSV). PSRAM is wiped by reset — and `idf.py monitor` resets the
- * chip on connect, so retrieve untethered runs with --no-reset. */
-#define REC_HZ         10
+ * duties and any bump/stuck event, into a PSRAM ring for bench
+ * analysis (r to record, d to dump as CSV). PSRAM is wiped by reset —
+ * and `idf.py monitor` resets the chip on connect, so retrieve
+ * untethered runs with --no-reset. */
 #define REC_SPIRAM_N   36000   /* ~1 h at 10 Hz, ~6 MB of the 8 MB PSRAM */
 #define REC_INTERNAL_N 600     /* ~1 min fallback if PSRAM is absent */
 
@@ -382,18 +559,27 @@ typedef struct {
     int16_t px[64];
     float dps[3], g[3];
     float volts, ma;
+    uint8_t bump;               /* 0 quiet, 1 jolt, 2 stuck */
 } rec_t;
 
 static rec_t *rec_buf;
 static int rec_cap, rec_head, rec_len;
 static volatile bool rec_on;
 
-static void rec_task(void *arg)
+/* One 10 Hz heartbeat: read the IMU, run bump detection, then snapshot
+ * everything for the recorder. */
+static void tick_task(void *arg)
 {
     TickType_t wake = xTaskGetTickCount();
     while (1) {
-        xTaskDelayUntil(&wake, pdMS_TO_TICKS(1000 / REC_HZ));
-        if (!rec_on) {
+        xTaskDelayUntil(&wake, pdMS_TO_TICKS(1000 / TICK_HZ));
+        float dps[3], g[3];
+        bool imu_ok = lsm_ok && lsm_read(dps, g) == ESP_OK;
+        uint8_t bump = imu_ok ? bump_check(g) : 0;
+        if (imu_ok && esc_enable) {
+            esc_step(bump, dps);
+        }
+        if (!rec_on || rec_cap == 0) {
             continue;
         }
         rec_t *r = &rec_buf[rec_head];
@@ -404,12 +590,14 @@ static void rec_task(void *arg)
         if (amg_ok) {
             amg_read_pixels(r->px);
         }
-        if (lsm_ok) {
-            lsm_read(r->dps, r->g);
+        if (imu_ok) {
+            memcpy(r->dps, dps, sizeof(r->dps));
+            memcpy(r->g, g, sizeof(r->g));
         }
         if (ina_ok) {
             ina_read(&r->volts, &r->ma);
         }
+        r->bump = bump;
         rec_head = (rec_head + 1) % rec_cap;
         if (rec_len < rec_cap) {
             rec_len++;
@@ -417,7 +605,7 @@ static void rec_task(void *arg)
     }
 }
 
-static void rec_init(void)
+static void tick_init(void)
 {
     rec_cap = REC_SPIRAM_N;
     rec_buf = heap_caps_malloc(rec_cap * sizeof(rec_t), MALLOC_CAP_SPIRAM);
@@ -426,11 +614,10 @@ static void rec_init(void)
         rec_buf = malloc(rec_cap * sizeof(rec_t));
     }
     if (rec_buf == NULL) {
-        rec_cap = 0;
+        rec_cap = 0;   /* bump detection still needs the heartbeat */
         printf("no memory for the recorder; r/d disabled\n");
-        return;
     }
-    xTaskCreate(rec_task, "rec", 4096, NULL, 5, NULL);
+    xTaskCreate(tick_task, "tick", 4096, NULL, 5, NULL);
 }
 
 static void rec_dump(void)
@@ -439,15 +626,16 @@ static void rec_dump(void)
         printf("still recording; r to stop first\n");
         return;
     }
-    printf("ms,left,right,volts,ma,gx,gy,gz,ax,ay,az");
+    printf("ms,left,right,volts,ma,bump,gx,gy,gz,ax,ay,az");
     for (int i = 0; i < 64; i++) {
         printf(",p%d", i);
     }
     printf("\n");
     for (int i = 0; i < rec_len; i++) {
         rec_t *r = &rec_buf[(rec_head - rec_len + i + rec_cap) % rec_cap];
-        printf("%lu,%d,%d,%.2f,%.0f,%.1f,%.1f,%.1f,%.3f,%.3f,%.3f",
+        printf("%lu,%d,%d,%.2f,%.0f,%d,%.1f,%.1f,%.1f,%.3f,%.3f,%.3f",
                (unsigned long)r->ms, r->left, r->right, r->volts, r->ma,
+               r->bump,
                r->dps[0], r->dps[1], r->dps[2], r->g[0], r->g[1], r->g[2]);
         for (int p = 0; p < 64; p++) {
             printf(",%.2f", r->px[p] * 0.25f);
@@ -455,6 +643,45 @@ static void rec_dump(void)
         printf("\n");
     }
     printf("# %d records\n", rec_len);
+}
+
+/* Calibration script: fixed open-loop drive segments meant to be
+ * recorded (r) and analysed on the bench — trim, deadband, breakaway.
+ * Each segment starts from standstill so every run exercises the
+ * kick-from-rest behaviour, and forward runs are mirrored backward so
+ * f1 roughly returns to where he started. Extend the table as needed. */
+static const struct { int left, right; int ms; } cal_seq[] = {
+    { 40, 40, 2500 },  { -40, -40, 2500 },
+    { 50, 50, 2500 },  { -50, -50, 2500 },
+    { 60, 60, 2500 },  { -60, -60, 2500 },
+    { 30, 30, 1500 },  { -30, -30, 1500 },
+    { 25, 25, 1500 },  { -25, -25, 1500 },
+    { 20, 20, 1500 },  { -20, -20, 1500 },
+    { 15, 15, 1500 },  { -15, -15, 1500 },
+};
+
+static void cal_run(int delay_s)
+{
+    bool esc_was = esc_enable;
+    esc_enable = false;   /* breakaway jolts must not hijack the script */
+    if (!rec_on) {
+        printf("cal: note, not recording (r first to log the run)\n");
+    }
+    if (delay_s > 0) {
+        printf("cal: starting in %d s\n", delay_s);
+        countdown_winks(delay_s);
+        rgb_set(RGB_GREEN);
+    }
+    for (int i = 0; i < sizeof(cal_seq) / sizeof(cal_seq[0]); i++) {
+        printf("cal: left %d right %d for %d ms\n",
+               cal_seq[i].left, cal_seq[i].right, cal_seq[i].ms);
+        drive(cal_seq[i].left, cal_seq[i].right);
+        vTaskDelay(pdMS_TO_TICKS(cal_seq[i].ms));
+        drive(0, 0);
+        vTaskDelay(pdMS_TO_TICKS(700));   /* settle, and mark the segment */
+    }
+    esc_enable = esc_was;
+    printf("cal: done\n");
 }
 
 static void print_help(void)
@@ -467,7 +694,10 @@ static void print_help(void)
            "  t                  read thermal mean\n"
            "  v                  read pack voltage and current\n"
            "  g                  read gyro and accelerometer\n"
-           "  p <which>          perform: a = I'm-alive\n"
+           "  c [secs]           motor calibration script, after an optional\n"
+           "                     delay to get him on the floor (r first)\n"
+           "  p <which>          perform: a = I'm-alive, f = found-you\n"
+           "  b                  bump escape reflex on/off (default on)\n"
            "  l <r> <g> <b>      set the RGB LED, 0..255 (l 32 0 0)\n"
            "  r                  record all sensors at 10 Hz, start/stop\n"
            "  d                  dump the recording as CSV\n"
@@ -517,6 +747,9 @@ static void handle_line(char *line)
         if (pc == 'a') {
             perform_alive();
             printf("performance: done\n");
+        } else if (pc == 'f') {
+            perform_found();
+            printf("performance: done\n");
         } else {
             printf("no such performance: %c\n", pc);
         }
@@ -533,10 +766,17 @@ static void handle_line(char *line)
             rec_head = 0;
             rec_len = 0;   /* each run starts fresh */
             rec_on = true;
-            printf("recording at %d Hz (r to stop)\n", REC_HZ);
+            printf("recording at %d Hz (r to stop)\n", TICK_HZ);
         }
     } else if (strcmp(line, "d") == 0) {
         rec_dump();
+    } else if (strcmp(line, "b") == 0) {
+        esc_enable = !esc_enable;
+        printf("escape reflex: %s\n", esc_enable ? "on" : "off");
+    } else if (line[0] == 'c' && (line[1] == '\0' || line[1] == ' ')) {
+        int delay = 0;
+        sscanf(line, "c %d", &delay);
+        cal_run(delay);
     } else {
         print_help();
     }
@@ -552,7 +792,7 @@ void app_main(void)
     amg_init();
     ina_init();
     lsm_init();
-    rec_init();
+    tick_init();
     ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 256, 0, 0, NULL, 0));
     print_help();
 

@@ -1,114 +1,84 @@
-# Fred — heat-seeking firmware design
+# f1 — firmware design
 
-Where the firmware is today: `firmware_main.c` initialises the AMG8833 and
-prints the mean of all 64 pixels once a second. No motor code yet. This doc
-is the design for the rest, and the list of wrinkles that need solving on
-the way.
+Direction change (2026-08-04): the heat-seeking missile is dead, long
+live the wanderer. Live trials showed SEEK/TRACK/ARRIVE asking too much
+of an 8×8 camera and two unmatched TT motors; the hunt machinery
+worked, taught us everything below, and was removed (it came and went
+between commits, so its legacy is this file, not git history).
 
-## Sensor facts that shape the design
+The behaviour goal is now: **f1 wanders fairly aimlessly with a slight
+penchant for heat** — settles in warm places, wanders off occasionally,
+responds happily when someone comes to see him (heat transients), and
+is livelier on fresh batteries. Vastly simpler, still fun. Build order:
+get the primitives trustworthy first, then compose the wanderer from
+them.
 
-- 8x8 pixels spanning a 60° cone (~7.5° per column), 10 fps, 0.25 °C per
-  LSB, and — the big one — **±2.5 °C noise per pixel**.
-- A pixel reads the area-weighted average of everything in its view. A
-  person 3-4 m away part-fills one pixel, so they show up as a single
-  column maybe only 2-3 °C above background: one red blob on the blues,
-  barely above the noise. All the marginal-signal wrinkles below stem from
-  this.
-- The sensor is mounted behind an open vertical window, recessed ~3 mm with
-  ~4 mm clearance either side — the 60° cone clears the frame, no
-  vignetting.
+## Primitives (implemented, in `firmware_main.c`)
 
-## The algorithm
+- **Motor layer** — `drive(left, right)` with L/R trim, deadband remap,
+  and the USB-power guard (see schematic.md).
+- **Performances** — `p a` I'm-alive wiggle, `p f` found-you shimmy;
+  one function per performance, repertoire grows.
+- **RGB status** — red boot/fail/bump, green well, blue performing.
+- **Recorder** — `r`/`d`, 10 Hz all-sensor CSV (see below).
+- **Calibration** — `c [secs]`, scripted open-loop motor runs.
+- **Bump/stuck detection** — every tick while motors are commanded: a
+  jolt (accel deviation > `BUMP_JOLT_G`) means he hit something; low
+  gearbox vibration (< `STUCK_VIB_G`) means he's commanded but not
+  moving. Logged per tick in the `bump` column, red LED flash on
+  event. Thresholds are first guesses — tune from recorded logs of
+  deliberate collisions before the wanderer relies on them.
+- **Escape reflex** (`b` toggles, default on; the cal script disables
+  itself) — on bump/stuck: reverse 1 s (or forward, if he was
+  reversing), gyro-measured about-turn of 180±30° in a random
+  direction (exact 180s ping-pong in corners), then resume the
+  pre-bump command. Bumps within ~3 s of an escape count as still
+  trapped; after 4 tries he stops rather than thrash.
 
-Two classical ideas, combined. The naive plan (rotate, differentiate heat
-over the sweep, advance if improving) is **run-and-tumble** — how bacteria
-climb gradients with a one-pixel sensor. But the camera's 8 columns deliver
-a spatial gradient across 60° in every frame, so the inner loop can instead
-be **centroid steering** (visual servoing in its simplest form; also
-Braitenberg vehicle 2b): steer continuously toward the heat, no
-stop-rotate-sample phases.
+## Measured facts (hard-won, the rebuild stands on these)
 
-Per frame in TRACK:
+- A person at 2 m reads **+2.0–2.4 °C** over ambient (21 °C room).
+  Working detection: acquire at ambient +2.0, keep at +1.0, 4-frame
+  same/adjacent-column persistence, minimum blob weight so one noise
+  pixel can't steer. Pixel noise is real: ±2.5 °C.
+- **Movement, not temperature, tells people from furniture.** Liveliness
+  (EMA of per-frame centroid motion): people 0.03–0.07, a hot window
+  0.007 — and the window ran *hotter* than the person (+7 °C vs +3.4).
+- **Ambient baseline**: gated EMA of the frame median — learn only while
+  coverage < 30%, else an approaching target drags its own reference up.
+- **Boresight**: dead ahead is image column ~3.2, not the geometric 3.5.
+- **Trim**: straight needs left − right ≈ −1, set open-loop (`c` runs) —
+  never fit trim from behaviour logs, feedback biases the fit.
+- **Deadband**: dead at 20% duty, reliable from rest at 25%, one-wheel
+  random breakaway below; `motor_set` remaps commands onto 25–100%.
+- **Vibration** is a clean moving/stalled witness: <2 mg at rest,
+  >29 mg rolling.
+- **Gyro**: z bias −0.7 dps at rest; handling (pickup) is a 150:1
+  signal — pickup detection is nearly free when wanted.
 
-1. Sum each column's above-threshold heat.
-2. Weighted centroid column `c` (a float, 0..7).
-3. Steering error `e = c - 3.5`.
-4. `left = base + k*e`, `right = base - k*e` — Fred arcs toward warmth.
+## The wanderer (to design)
 
-Wrapped in a small state machine:
-
-| State | Behaviour | Exit |
-|-------|-----------|------|
-| SEEK | spin slowly in place | blob acquired → TRACK |
-| TRACK | centroid steering, forward | coverage high → ARRIVE; blob gone ~1 s → SEEK |
-| ARRIVE | stop, bask | blob shrinks/moves → TRACK |
-
-Centroid degradation is graceful by construction: at range the error
-quantises to 7.5° column steps (coarse, slightly bang-bang); as the blob
-grows to span columns, the weighted centroid interpolates *between* columns
-and steering smooths out. Coarse when far, fine when near — and the far
-regime is self-curing, because approach rapidly improves pixel fill and
-signal. Only acquisition is hard.
-
-## Wrinkles to solve
-
-Signal (the marginal single-pixel target):
-
-- **Ambient baseline.** "Above threshold" means above ambient, which
-  varies. Options: the frame median (most pixels are background), and/or
-  the AMG8833's onboard thermistor register (0x0E). Frame median is
-  probably the more honest baseline; decide empirically.
-- **Hysteresis.** One threshold to *acquire* a target (high, e.g. ambient
-  +3 °C), a lower one to *keep* it — otherwise a marginal pixel flickers
-  Fred between SEEK and TRACK every frame.
-- **Persistence.** A single noise pixel is indistinguishable from a distant
-  person in one frame. Promote a blob to "target" only if something shows
-  in the same or an adjacent column for ~3 consecutive frames. Noise
-  doesn't repeat in place; people do.
-- **Smoothing.** EMA on the centroid (or the frame) to stop whole-column
-  noise lurches steering Fred drunk. Costs reaction lag, which he can
-  afford.
-- **LOST grace.** Blob gone → keep last heading for ~1 s before reverting
-  to SEEK, so a two-frame dropout doesn't restart the spin.
-
-Movement:
-
-- **SEEK spin rate vs frame rate.** Slow enough that 10 fps gives 2+
-  frames per 60° of rotation, so nothing slips between glances.
-- **ARRIVE criterion.** "Image fills the frame": fraction of pixels above
-  threshold (say >60% coverage), plus a max-temp floor so a sunlit patch
-  doesn't qualify. Needs tuning against a real person/radiator/cat.
-- **Column↔direction mapping.** Establish empirically which end of a row is
-  Fred's left — depends on sensor mounting orientation. Get the sign of
-  `k` wrong and Fred flees heat (Braitenberg's "fear" vehicle — funny
-  once).
-- **Motor calibration.** TT motors have a PWM deadband (below some duty
-  they hum, not turn) and no two are matched — find the deadband and the
-  L/R trim for driving straight, over the USB tether. `base` and `k` tune
-  after that.
-- **nSLEEP discipline.** Hold GPIO10 low until the firmware means to move.
-  Also the operating rule: pack on before motors run — with the pack off,
-  motor current would be pulled from USB (see schematic.md).
+A mood/impulse loop over the primitives, not a state machine with a
+goal: mostly amble (short arcs, pauses), linger where the frame is
+warm, occasionally get restless and move on, greet a heat transient
+(someone arriving) with `p f`, back off and turn on bump/stuck. Energy
+budget scales with pack voltage — livelier on fresh batteries, sleepy
+on flat ones. Design properly once bump detection is trusted.
 
 ## Data recorder
 
 Tuning happens against logs, not memory. `r` starts/stops a 10 Hz
 recording of everything — thermal frame, gyro/accel, volts/amps,
-commanded motor duties — into a PSRAM ring (~1 h capacity); `d` dumps
-it as CSV over the console. Whenever a run felt "off", dump it and see
-what Fred saw.
+commanded motor duties, bump events — into a PSRAM ring (~1 h
+capacity); `d` dumps it as CSV over the console. Columns:
+`ms,left,right,volts,ma,bump,gx,gy,gz,ax,ay,az,p0..p63`.
 
 Two wrinkles in retrieving a run, both monitor-side. PSRAM is wiped by
 reset, and `idf.py monitor` resets the chip on connect — always attach
-with `idf.py monitor --no-reset`. And `d` only writes to the serial
-wire; the file is made by whatever is listening, so either toggle the
-monitor's file logging with Ctrl+T Ctrl+L around the dump, or start it
-as `idf.py monitor --no-reset -l run.log` and the whole session lands
-in the file. On the bench: `pandas.read_csv(path, comment="#")`,
-trimming any non-CSV monitor chatter first.
-
-## Tuning parameters (expected)
-
-`acquire/keep thresholds, persistence frames, EMA alpha, base speed, k,
-SEEK spin duty, ARRIVE coverage + temp floor, LOST grace time, L/R trim,
-PWM deadband` — all found over the USB tether with a human test subject.
+with `idf.py monitor --no-reset` (monitor.sh does). And `d` only writes
+to the serial wire; the file is made by whatever is listening, so
+either toggle the monitor's file logging with Ctrl+T Ctrl+L around the
+dump, or start it as `idf.py monitor --no-reset -l run.log` and the
+whole session lands in the file. On the bench:
+`pandas.read_csv(path, comment="#")`, trimming any non-CSV monitor
+chatter first.

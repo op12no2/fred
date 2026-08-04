@@ -1,8 +1,9 @@
 # f1
 
-f1 spins slowly until he senses heat (an AMG8833 8x8 thermal camera),
-then moves towards it; that's it. The essential Fred: thermal eyes, two
-motors, one driver, nothing else.
+f1 wanders fairly aimlessly with a slight penchant for heat (an AMG8833
+8x8 thermal camera): he settles in warm places, wanders off
+occasionally, and responds happily when someone comes to see him. The
+essential Fred: thermal eyes, two motors, one driver, nothing else.
 
 ESP32-S3-DevKitC-1 on the blue octagon chassis: two TT 1:90 gear motors
 and a caster through a single DRV8833, powered by a 4xAA NiMH pack.
