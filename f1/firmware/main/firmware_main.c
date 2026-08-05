@@ -65,6 +65,9 @@
 #define RGB_RED         32, 0, 0
 #define RGB_GREEN       0, 32, 0
 #define RGB_BLUE        0, 0, 48
+#define RGB_BLACK       0, 0, 0
+#define RGB_WHIFF       48, 24, 0
+#define RGB_HELD        48, 0, 48
 
 #define MOTOR_L_IN1_CH  LEDC_CHANNEL_0
 #define MOTOR_L_IN2_CH  LEDC_CHANNEL_1
@@ -461,7 +464,7 @@ static void held_check(const float dps[3], const float g[3])
             }
             held_since = now;
             drive(0, 0);   /* wheels stop, and the driver sleeps, in hands */
-            rgb_set(48, 0, 48);   /* violet: airborne */
+            rgb_set(RGB_HELD);   /* violet: airborne */
             printf("picked up!\n");
         }
     } else if (gmag < HELD_QUIET_DPS) {
@@ -581,7 +584,7 @@ static void watch_toggle(void)
     if (watch_state != WATCH_OFF) {
         watch_state = WATCH_OFF;
         drive(0, 0);
-        rgb_set(48, 24, 0);
+        rgb_set(RGB_RED);
         vTaskDelay(pdMS_TO_TICKS(800));
         rgb_set(RGB_GREEN);
         printf("watcher: off\n");
@@ -590,10 +593,11 @@ static void watch_toggle(void)
     } else {
         for (int i = 0; i < 2; i++) {
             rgb_set(RGB_BLUE);
-            vTaskDelay(pdMS_TO_TICKS(300));
-            rgb_set(RGB_GREEN);
-            vTaskDelay(pdMS_TO_TICKS(300));
+            vTaskDelay(pdMS_TO_TICKS(400));
+            rgb_set(RGB_BLACK);
+            vTaskDelay(pdMS_TO_TICKS(100));
         }
+        rgb_set(RGB_GREEN);
         watch_bg_seed = true;
         watch_prev_held = false;
         watch_deadline = esp_timer_get_time() + watch_soon_us();
@@ -658,7 +662,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
         }
         if (whiff) {
             if (!watch_whiff_prev) {   /* a blip on arrival: "interesting" */
-                rgb_set(48, 24, 0);
+                rgb_set(RGB_WHIFF);
                 watch_whiff_led_until = now + WATCH_WHIFF_LED_MS * 1000LL;
                 /* and a small head-turn toward the warmth */
                 int n = (int)lroundf((maxdev_i % 8) - WATCH_CENTER_COL);
