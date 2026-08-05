@@ -15,7 +15,7 @@ README etc..
 With the exception of f0, the fleet talks over ESP-NOW broadcasts (connectionless 2.4 GHz,
 no router, no pairing). Every member shouts a small status beacon and
 anyone may listen. Received signal strength doubles as a crude "how close
-is my sibling" sense.
+is my sibling" sense. With nothing better to do they tend to huddle and chat.
 
 Protocol v0 (draft, until two members exist to argue about it):
 
