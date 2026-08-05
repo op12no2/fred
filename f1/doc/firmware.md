@@ -138,6 +138,20 @@ and jittered (every "soon" is `WATCH_SOON_S` ± half); transitions
 print with mood and volts; `ws` column (1 rest, 2 look, 3 reorient)
 in the recorder.
 
+**The rhythm**: deep sleep from power-on until the first wake — the
+gesture is half the fun — then f1 lives an asymmetric sleep/wake
+cycle, a fresh span drawn log-normally at *every* transition, manual
+or autonomous alike: awake median 2 h fresh, **shrunk** ÷3 by
+tiredness; asleep median 1 h fresh, **stretched** ×3 (sigma 0.5,
+clamped 20 min–6 h and 15 min–4 h). So waking a sleeping f1 grants a
+full awake span and putting him to sleep earns a full sleep — the
+gesture genuinely matters, it never just pauses a timer. Asleep is
+watcher-off: the ember LED, with pickup and the gesture still
+listening. He won't cycle while held; "watch: nodding off" / "waking
+by himself" on the console, and each toggle prints its drawn span.
+Power-cycling returns him to deep sleep — the honest meaning of a
+power cycle.
+
 **Next layer — responding**: the hello is the down-payment on this.
 Still to come: double-check (persistence against the background),
 then with probability ∝ blob size × dwell (gestures.log) a tentative

@@ -531,6 +531,16 @@ static void held_check(const float dps[3], const float g[3])
 #define WATCH_SOON_S        20      /* a nudge pulls the next look to about
                                        here — jittered +-half, so noticing
                                        never runs on a timetable */
+#define WATCH_AWAKE_MED_S   7200    /* median awake span, fresh — tiredness
+                                       shrinks it (/3 fully tired) */
+#define WATCH_SLEEP_MED_S   3600    /* median sleep span, fresh — tiredness
+                                       stretches it (x3 fully tired) */
+#define WATCH_CYCLE_SIGMA   0.5f    /* tighter than the looks: a rhythm,
+                                       not a lottery */
+#define WATCH_AWAKE_MIN_S   1200    /* 20 min .. 6 h awake */
+#define WATCH_AWAKE_MAX_S   21600
+#define WATCH_SLEEP_MIN_S   900     /* 15 min .. 4 h asleep */
+#define WATCH_SLEEP_MAX_S   14400
 #define WATCH_SPIN_PCT      20      /* sweep duty (pre-remap), fresh */
 #define WATCH_SPIN_TIRED_PCT 8      /* sweep duty when fully tired */
 #define WATCH_SPIN_MIN_PCT  1       /* gaze-drag floor: linger, never stall */
@@ -573,6 +583,9 @@ static float watch_reorient_deg;   /* remaining degrees of the settle turn */
 static float watch_best_drag;      /* warmest moment of the sweep... */
 static float watch_best_yaw;       /* ...and the yaw it was seen at */
 static bool watch_whiff_pending;   /* a whiff called this look */
+static int64_t watch_cycle_at;     /* next autonomous sleep/wake toggle */
+static bool watch_duty;            /* the rhythm: armed by the first wake,
+                                      deep sleep from power-on until then */
 static int watch_whiff_sign;       /* drive sign toward the last whiff */
 static float watch_whiff_deg;      /* its degrees off boresight */
 
@@ -609,16 +622,28 @@ static float watch_mood(void)
     return m < 0 ? 0 : m > 1 ? 1 : m;
 }
 
-/* Log-normal rest interval, median stretched by mood. */
-static float watch_draw_s(void)
+/* Log-normal draw: how creatures keep appointments. */
+static float watch_lognormal_s(float med, float sigma, float min_s,
+                               float max_s)
 {
     float z = sqrtf(-2.0f * logf(watch_frand())) *
               cosf(6.2831853f * watch_frand());
-    float med = WATCH_LOOK_MED_S *
-                (1.0f + watch_mood() * (WATCH_TIRED_SCALE - 1.0f));
-    float s = med * expf(WATCH_LOOK_SIGMA * z);
-    return s < WATCH_LOOK_MIN_S ? WATCH_LOOK_MIN_S
-         : s > WATCH_LOOK_MAX_S ? WATCH_LOOK_MAX_S : s;
+    float s = med * expf(sigma * z);
+    return s < min_s ? min_s : s > max_s ? max_s : s;
+}
+
+/* 1 fresh .. WATCH_TIRED_SCALE fully tired. */
+static float watch_tired(void)
+{
+    return 1.0f + watch_mood() * (WATCH_TIRED_SCALE - 1.0f);
+}
+
+/* Rest interval between looks, median stretched by mood. */
+static float watch_draw_s(void)
+{
+    return watch_lognormal_s(WATCH_LOOK_MED_S * watch_tired(),
+                             WATCH_LOOK_SIGMA,
+                             WATCH_LOOK_MIN_S, WATCH_LOOK_MAX_S);
 }
 
 /* Shared by the console (w) and the double lift-down gesture. The
@@ -628,10 +653,15 @@ static void watch_toggle(void)
     if (watch_state != WATCH_OFF) {
         watch_state = WATCH_OFF;
         drive(0, 0);
+        float span = watch_lognormal_s(WATCH_SLEEP_MED_S * watch_tired(),
+                                       WATCH_CYCLE_SIGMA,
+                                       WATCH_SLEEP_MIN_S, WATCH_SLEEP_MAX_S);
+        watch_cycle_at = esp_timer_get_time() +
+                         (int64_t)(span * 1000000.0f);
         rgb_set(RGB_RED);
         vTaskDelay(pdMS_TO_TICKS(800));
         led_nominal();   /* back to sleep: the ember */
-        printf("watcher: off\n");
+        printf("watcher: off (asleep ~%.0f min)\n", span / 60.0f);
     } else if (!amg_ok) {
         printf("no thermal camera, no watcher\n");
     } else {
@@ -646,9 +676,16 @@ static void watch_toggle(void)
         watch_whiff_pending = false;
         watch_hello_done = false;
         watch_deadline = esp_timer_get_time() + watch_soon_us();
+        watch_duty = true;   /* the rhythm starts with the first wake */
+        float span = watch_lognormal_s(WATCH_AWAKE_MED_S / watch_tired(),
+                                       WATCH_CYCLE_SIGMA,
+                                       WATCH_AWAKE_MIN_S, WATCH_AWAKE_MAX_S);
+        watch_cycle_at = esp_timer_get_time() +
+                         (int64_t)(span * 1000000.0f);
         watch_state = WATCH_REST;
         led_nominal();   /* awake: full green */
-        printf("watcher: on (w or double lift-down to stop)\n");
+        printf("watcher: on (awake ~%.0f min; w or double lift-down "
+               "to stop)\n", span / 60.0f);
     }
 }
 
@@ -882,6 +919,11 @@ static void tick_task(void *arg)
         }
         if (gest_toggle) {
             gest_toggle = false;
+            watch_toggle();
+        }
+        if (watch_duty && !held && esp_timer_get_time() >= watch_cycle_at) {
+            printf(watch_state == WATCH_OFF ? "watch: waking by himself\n"
+                                            : "watch: nodding off\n");
             watch_toggle();
         }
         if (watch_state != WATCH_OFF && imu_ok && px_ok) {
