@@ -113,10 +113,13 @@ scene mean sheds sweep duty down to a crawl. Nudges pull the next look
 to ~20 s: a whiff (any pixel > background +1.5 °C, the zero-false-alarm
 threshold) or a set-down ("new spot"). Held aborts everything, as
 ever. Rest = green, looking = blue, and a whiff on arrival earns a
-beat of **amber** ("interesting") and a **hello** (`p h`, a gentle
-two-syllable swing — the coaxing precursor), after which the background
-reseeds (the wiggle moved the eye a little) and the visitor waits as
-wallpaper for the look. The look now **ends facing the best thing it
+beat of **amber** ("interesting") and — once per rest, re-armed by
+each look, or he's very predictable — a **hello** (`p h`, a gentle
+two-syllable swing — the coaxing precursor), after which the
+background reseeds (the wiggle moved the eye a little) and the
+visitor waits as wallpaper for the look. Later whiffs in the same
+rest get the amber beat only, still updating the remembered angle
+and pulling the look closer: noticed, said nothing. The look now **ends facing the best thing it
 showed**: the sweep remembers the yaw of peak gaze-drag and turns
 back to it by the shortest way round; if nothing rose above the gaze
 deadband the whole circle, it turns instead to the remembered angle of

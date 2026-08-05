@@ -558,6 +558,7 @@ static int watch_sign;
 static float watch_vrest;          /* resting pack volts, slow EMA */
 static bool watch_prev_held;
 static bool watch_whiff_prev;
+static bool watch_hello_done;      /* one hello per rest: stay surprising */
 static float watch_reorient_deg;   /* remaining degrees of the settle turn */
 static float watch_best_drag;      /* warmest moment of the sweep... */
 static float watch_best_yaw;       /* ...and the yaw it was seen at */
@@ -622,6 +623,7 @@ static void watch_toggle(void)
         watch_bg_seed = true;
         watch_prev_held = false;
         watch_whiff_pending = false;
+        watch_hello_done = false;
         watch_deadline = esp_timer_get_time() + watch_soon_us();
         watch_state = WATCH_REST;
         printf("watcher: on (w or double lift-down to stop)\n");
@@ -659,6 +661,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
         watch_prev_held = false;
         watch_bg_seed = true;       /* new spot, new background */
         watch_whiff_pending = false;
+        watch_hello_done = false;
         watch_deadline = now + watch_soon_us();
         printf("watch: new spot, looking soon\n");
     }
@@ -698,19 +701,26 @@ static void watch_step(const int16_t px[64], const float dps[3],
             }
         }
         if (whiff && !watch_whiff_prev) {
-            /* a beat of amber ("interesting"), then a hello — and the
-             * warmth's angle is remembered for the look's settle */
+            /* a beat of amber ("interesting"), and the warmth's angle
+             * is remembered for the look's settle — but the hello only
+             * once per rest, or he's very predictable */
             float off = (maxdev_i % 8) - WATCH_CENTER_COL;
             /* sign field-tested: he turned away from the first tester —
              * image columns run mirrored to the guess */
             watch_whiff_sign = off > 0 ? -1 : 1;
             watch_whiff_deg = fabsf(off) * WATCH_COL_DEG;
             watch_whiff_pending = true;
-            printf("watch: whiff (+%.1f C), hello, looking soon\n", maxdev);
+            printf("watch: whiff (+%.1f C), %slooking soon\n", maxdev,
+                   watch_hello_done ? "" : "hello, ");
             rgb_set(RGB_WHIFF);
             vTaskDelay(pdMS_TO_TICKS(WATCH_WHIFF_BEAT_MS));
-            perform_hello();
-            watch_bg_seed = true;   /* the wiggle moved the eye a little */
+            if (!watch_hello_done) {
+                watch_hello_done = true;
+                perform_hello();        /* ends on green */
+                watch_bg_seed = true;   /* the wiggle moved the eye a little */
+            } else {
+                rgb_set(RGB_GREEN);     /* noticed, said nothing */
+            }
             int64_t soon = watch_soon_us();
             if (watch_deadline > now + soon) {
                 watch_deadline = now + soon;
@@ -721,6 +731,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
             watch_yaw = 0;
             watch_sign = (esp_random() & 1) ? 1 : -1;
             watch_best_drag = 0;
+            watch_hello_done = false;   /* the look re-arms the hello */
             watch_look_until = now + WATCH_TURN_TIMEOUT_S * 1000000LL;
             watch_state = WATCH_LOOK;
             rgb_set(RGB_BLUE);
