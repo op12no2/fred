@@ -25,7 +25,7 @@ idf.py build
 idf.py -p /dev/ttyUSB0 flash monitor   # Ctrl+] to exit monitor
 ```
 
-Each robot's `firmware/firmware.sh` captures this flash-and-monitor sequence. There are no tests or linters.
+f1 splits this into `firmware/flash.sh` and `firmware/monitor.sh` — monitor attaches with `--no-reset` so a PSRAM recording survives (see f1/doc/firmware.md); f2's `firmware/firmware.sh` still captures the combined flash-and-monitor sequence. There are no tests or linters.
 
 `sdkconfig.defaults` sets the important board options: 8 MB flash and octal PSRAM (non-fatal if absent).
 

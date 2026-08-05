@@ -31,4 +31,5 @@ idf.py build
 idf.py -p /dev/ttyUSB0 flash monitor   # Ctrl+] to exit monitor
 ```
 
-`firmware/firmware.sh` captures the flash-and-monitor sequence.
+`firmware/flash.sh` flashes; `firmware/monitor.sh` attaches with
+`--no-reset`, so a PSRAM recording survives the reconnect.
