@@ -365,10 +365,25 @@ static void perform_alive(void)
     for (int i = 0; i < 3; i++) {
         rgb_set(RGB_BLUE);
         drive(60, -60);   /* above the ~30% standstill deadband */
-        vTaskDelay(pdMS_TO_TICKS(150));
+        vTaskDelay(pdMS_TO_TICKS(100));
         rgb_set(RGB_GREEN);
         drive(-60, 60);
-        vTaskDelay(pdMS_TO_TICKS(150));
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    drive(0, 0);
+    rgb_set(RGB_GREEN);
+}
+
+/* "Hello": the greeting when the watcher whiffs warmth. */
+static void perform_hello(void)
+{
+    for (int i = 0; i < 1; i++) {
+        rgb_set(RGB_BLUE);
+        drive(40, -40);   /* above the ~30% standstill deadband */
+        vTaskDelay(pdMS_TO_TICKS(200));
+        rgb_set(RGB_GREEN);
+        drive(-40, 40);
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
     drive(0, 0);
     rgb_set(RGB_GREEN);
@@ -493,10 +508,13 @@ static void held_check(const float dps[3], const float g[3])
 /* Watcher: the resting heartbeat (w to toggle). Rest with the driver
  * asleep, learning a per-pixel background; look around (a gyro-metered
  * full circle) at log-normally random intervals whose median stretches
- * as the pack tires; a whiff of warmth or a set-down pulls the next
- * look closer; the sweep itself slows when something warm crosses the
- * view — the gaze lingers. All knobs below; thresholds cite
- * f1/log/. Responding to what he sees is the next layer. */
+ * as the pack tires; a whiff of warmth earns a beat of amber and a
+ * hello wiggle and pulls the next look closer (a set-down pulls it
+ * too); the sweep itself slows when something warm crosses the view —
+ * the gaze lingers — and ends by turning back, shortest way round, to
+ * the warmest heading it saw, or to the whiff's angle if the sweep
+ * found nothing, or nowhere at all if there was neither. All knobs
+ * below; thresholds cite f1/log/. */
 #define WATCH_LOOK_MED_S    180     /* median rest between looks, fresh pack */
 #define WATCH_LOOK_SIGMA    0.7f    /* log-normal spread: double-takes and naps */
 #define WATCH_LOOK_MIN_S    30
@@ -518,15 +536,14 @@ static void held_check(const float dps[3], const float g[3])
 #define WATCH_TURN_TIMEOUT_S 30
 #define WATCH_WHIFF_C       1.5f    /* px over background = something's there
                                        (zero false alarms, quiet_room_sat) */
-#define WATCH_WHIFF_LED_MS  500     /* amber "interesting" blip on whiff onset */
+#define WATCH_WHIFF_BEAT_MS 300     /* amber beat of noticing before the hello */
 #define WATCH_BG_ALPHA      0.02f   /* per-pixel background EMA */
 #define WATCH_BG_SETTLE_S   10      /* stillness before the background is
                                        trusted (quiet_room_sat) */
 #define WATCH_CENTER_COL    3.2f    /* boresight column (measured) */
 #define WATCH_COL_DEG       7.5f    /* camera columns to degrees */
-#define WATCH_ORIENT_PCT    12      /* gentle turn-toward duty on a whiff */
-#define WATCH_ORIENT_MAX_COL 3      /* cap the head-turn at 3 columns (22.5) */
-#define WATCH_ORIENT_TIMEOUT_S 4
+#define WATCH_REORIENT_MIN_DEG 5.0f /* not worth turning back for less */
+#define WATCH_REORIENT_TIMEOUT_S 15
 
 typedef enum { WATCH_OFF = 0, WATCH_REST, WATCH_LOOK, WATCH_ORIENT } watch_state_t;
 
@@ -540,9 +557,13 @@ static float watch_yaw;
 static int watch_sign;
 static float watch_vrest;          /* resting pack volts, slow EMA */
 static bool watch_prev_held;
-static int64_t watch_whiff_led_until;
 static bool watch_whiff_prev;
-static int watch_orient_n;         /* signed columns of the pending head-turn */
+static float watch_reorient_deg;   /* remaining degrees of the settle turn */
+static float watch_best_drag;      /* warmest moment of the sweep... */
+static float watch_best_yaw;       /* ...and the yaw it was seen at */
+static bool watch_whiff_pending;   /* a whiff called this look */
+static int watch_whiff_sign;       /* drive sign toward the last whiff */
+static float watch_whiff_deg;      /* its degrees off boresight */
 
 static float watch_frand(void)
 {
@@ -600,10 +621,25 @@ static void watch_toggle(void)
         rgb_set(RGB_GREEN);
         watch_bg_seed = true;
         watch_prev_held = false;
+        watch_whiff_pending = false;
         watch_deadline = esp_timer_get_time() + watch_soon_us();
         watch_state = WATCH_REST;
         printf("watcher: on (w or double lift-down to stop)\n");
     }
+}
+
+/* The look is over: stop, reseed the (now stale) background, draw the
+ * next rest. Shared by the sweep's end and the settle turn's end. */
+static void watch_settle(int64_t now)
+{
+    drive(0, 0);
+    rgb_set(RGB_GREEN);
+    watch_bg_seed = true;
+    float rest = watch_draw_s();
+    watch_deadline = now + (int64_t)(rest * 1000000.0f);
+    watch_state = WATCH_REST;
+    printf("watch: resting %.0f s (mood %.2f, %.2f V)\n",
+           rest, watch_mood(), watch_vrest);
 }
 
 static void watch_step(const int16_t px[64], const float dps[3],
@@ -622,6 +658,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
     if (watch_prev_held) {
         watch_prev_held = false;
         watch_bg_seed = true;       /* new spot, new background */
+        watch_whiff_pending = false;
         watch_deadline = now + watch_soon_us();
         printf("watch: new spot, looking soon\n");
     }
@@ -660,43 +697,31 @@ static void watch_step(const int16_t px[64], const float dps[3],
                 watch_bg[i] += WATCH_BG_ALPHA * (t[i] - watch_bg[i]);
             }
         }
-        if (whiff) {
-            if (!watch_whiff_prev) {   /* a blip on arrival: "interesting" */
-                rgb_set(RGB_WHIFF);
-                watch_whiff_led_until = now + WATCH_WHIFF_LED_MS * 1000LL;
-                /* and a small head-turn toward the warmth */
-                int n = (int)lroundf((maxdev_i % 8) - WATCH_CENTER_COL);
-                n = n > WATCH_ORIENT_MAX_COL ? WATCH_ORIENT_MAX_COL
-                  : n < -WATCH_ORIENT_MAX_COL ? -WATCH_ORIENT_MAX_COL : n;
-                if (n != 0) {
-                    watch_orient_n = n;
-                    watch_yaw = 0;
-                    watch_look_until = now + WATCH_ORIENT_TIMEOUT_S * 1000000LL;
-                    /* sign field-tested: he turned away from the first
-                     * tester — image columns run mirrored to the guess */
-                    int sign = n > 0 ? -1 : 1;
-                    drive(sign * WATCH_ORIENT_PCT, -sign * WATCH_ORIENT_PCT);
-                    watch_whiff_prev = true;
-                    watch_state = WATCH_ORIENT;
-                    break;
-                }
-            }
+        if (whiff && !watch_whiff_prev) {
+            /* a beat of amber ("interesting"), then a hello — and the
+             * warmth's angle is remembered for the look's settle */
+            float off = (maxdev_i % 8) - WATCH_CENTER_COL;
+            /* sign field-tested: he turned away from the first tester —
+             * image columns run mirrored to the guess */
+            watch_whiff_sign = off > 0 ? -1 : 1;
+            watch_whiff_deg = fabsf(off) * WATCH_COL_DEG;
+            watch_whiff_pending = true;
+            printf("watch: whiff (+%.1f C), hello, looking soon\n", maxdev);
+            rgb_set(RGB_WHIFF);
+            vTaskDelay(pdMS_TO_TICKS(WATCH_WHIFF_BEAT_MS));
+            perform_hello();
+            watch_bg_seed = true;   /* the wiggle moved the eye a little */
             int64_t soon = watch_soon_us();
             if (watch_deadline > now + soon) {
                 watch_deadline = now + soon;
-                printf("watch: whiff (+%.1f C), looking soon\n", maxdev);
             }
         }
         watch_whiff_prev = whiff;
-        if (watch_whiff_led_until != 0 && now > watch_whiff_led_until) {
-            rgb_set(RGB_GREEN);   /* blip over */
-            watch_whiff_led_until = 0;
-        }
         if (now >= watch_deadline) {
             watch_yaw = 0;
             watch_sign = (esp_random() & 1) ? 1 : -1;
+            watch_best_drag = 0;
             watch_look_until = now + WATCH_TURN_TIMEOUT_S * 1000000LL;
-            watch_whiff_led_until = 0;
             watch_state = WATCH_LOOK;
             rgb_set(RGB_BLUE);
             printf("watch: looking around\n");
@@ -709,6 +734,10 @@ static void watch_step(const int16_t px[64], const float dps[3],
         if (drag < 0) {
             drag = 0;
         }
+        if (drag > watch_best_drag) {   /* the warmest heading so far */
+            watch_best_drag = drag;
+            watch_best_yaw = watch_yaw;
+        }
         int base = WATCH_SPIN_PCT -
                    (int)(watch_mood() * (WATCH_SPIN_PCT - WATCH_SPIN_TIRED_PCT));
         int duty = base - (int)(WATCH_GAZE_K * drag);
@@ -718,37 +747,53 @@ static void watch_step(const int16_t px[64], const float dps[3],
         drive(watch_sign * duty, -watch_sign * duty);
         watch_yaw += dps[2] * (1.0f / TICK_HZ);
         if (fabsf(watch_yaw) >= WATCH_TURN_DEG || now > watch_look_until) {
-            drive(0, 0);
-            rgb_set(RGB_GREEN);
-            watch_bg_seed = true;   /* heading moved, background is stale */
-            float rest = watch_draw_s();
-            watch_deadline = now + (int64_t)(rest * 1000000.0f);
-            watch_state = WATCH_REST;
-            printf("watch: resting %.0f s (mood %.2f, %.2f V)\n",
-                   rest, watch_mood(), watch_vrest);
+            /* circle done: face the best thing it showed — the warmest
+             * heading, or failing that the whiff that called the look */
+            float target = 0;
+            bool have = false;
+            if (watch_best_drag > 0) {
+                target = watch_best_yaw;
+                have = true;
+            } else if (watch_whiff_pending) {
+                /* the whiff's angle, mapped into this spin's yaw frame */
+                float ysign = watch_yaw >= 0 ? 1.0f : -1.0f;
+                target = (watch_whiff_sign == watch_sign ? ysign : -ysign)
+                         * watch_whiff_deg;
+                have = true;
+            }
+            watch_whiff_pending = false;
+            if (have) {
+                float delta = target - watch_yaw;   /* shortest way back */
+                while (delta > 180.0f) {
+                    delta -= 360.0f;
+                }
+                while (delta < -180.0f) {
+                    delta += 360.0f;
+                }
+                if (fabsf(delta) >= WATCH_REORIENT_MIN_DEG) {
+                    /* the spin just taught us which drive sign yaws
+                     * which way — no calibration constant needed */
+                    int d = (delta >= 0) == (watch_yaw >= 0)
+                          ? watch_sign : -watch_sign;
+                    watch_reorient_deg = fabsf(delta);
+                    watch_yaw = 0;
+                    watch_look_until =
+                        now + WATCH_REORIENT_TIMEOUT_S * 1000000LL;
+                    drive(d * base, -d * base);
+                    watch_state = WATCH_ORIENT;
+                    printf("watch: turning %.0f deg back to %s\n", delta,
+                           watch_best_drag > 0 ? "the warmth" : "the whiff");
+                    break;
+                }
+            }
+            watch_settle(now);
         }
         break;
     }
     case WATCH_ORIENT: {
         watch_yaw += dps[2] * (1.0f / TICK_HZ);
-        if (fabsf(watch_yaw) >= abs(watch_orient_n) * WATCH_COL_DEG ||
-            now > watch_look_until) {
-            drive(0, 0);
-            /* the scene shifted with the turn: slide the background the
-             * same number of columns so the visitor stays distinct from
-             * the wallpaper; only the newly revealed edge is reseeded */
-            float old[64];
-            memcpy(old, watch_bg, sizeof(old));
-            for (int r = 0; r < 8; r++) {
-                for (int c = 0; c < 8; c++) {
-                    int src = c + watch_orient_n;
-                    watch_bg[r * 8 + c] = (src >= 0 && src < 8)
-                        ? old[r * 8 + src] : t[r * 8 + c];
-                }
-            }
-            printf("watch: turned %d deg toward the warmth\n",
-                   (int)(watch_orient_n * WATCH_COL_DEG));
-            watch_state = WATCH_REST;
+        if (fabsf(watch_yaw) >= watch_reorient_deg || now > watch_look_until) {
+            watch_settle(now);
         }
         break;
     }
@@ -772,7 +817,8 @@ typedef struct {
     float dps[3], g[3];
     float volts, ma;
     uint8_t held;               /* 1 while he's in someone's hands */
-    uint8_t ws;                 /* watcher state: 0 off, 1 rest, 2 look */
+    uint8_t ws;                 /* watcher state: 0 off, 1 rest, 2 look,
+                                   3 reorient (the settle turn) */
 } rec_t;
 
 static rec_t *rec_buf;
@@ -917,7 +963,8 @@ static void print_help(void)
            "  w                  watcher on/off (or: double lift-down gesture)\n"
            "  c [secs]           motor calibration script, after an optional\n"
            "                     delay to get him on the floor (r first)\n"
-           "  p <which>          perform: a = I'm-alive, f = found-you\n"
+           "  p <which>          perform: a = I'm-alive, h = hello,\n"
+           "                     f = found-you\n"
            "  l <r> <g> <b>      set the RGB LED, 0..255 (l 32 0 0)\n"
            "  r                  record all sensors at 10 Hz, start/stop\n"
            "  d                  dump the recording as CSV\n"
@@ -964,6 +1011,9 @@ static void handle_line(char *line)
     } else if (sscanf(line, "p %c", &pc) == 1) {
         if (pc == 'a') {
             perform_alive();
+            printf("performance: done\n");
+        } else if (pc == 'h') {
+            perform_hello();
             printf("performance: done\n");
         } else if (pc == 'f') {
             perform_found();
