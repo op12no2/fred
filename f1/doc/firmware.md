@@ -29,7 +29,10 @@ stillness. The gyro's real gift is knowing when he's been picked up.
   greeting: one gentle two-syllable swing, "hi-ya"), `p f` found-you
   shimmy; one function per performance, repertoire grows.
 - **RGB status** — red boot/fail, green well, blue performing, violet
-  while held.
+  while held. Nominal green is arousal-graded via `led_nominal()`: a
+  dim ember while the watcher sleeps, full green awake — George read
+  the watch toggle as waking him, and now the LED agrees (he also
+  boots up asleep).
 - **Pickup detection** — while idle, sustained rotation (>20 dps,
   3 ticks) means he's in someone's hands (handling is a 150:1 signal);
   while driving, sustained tilt (az < 0.90, ~25°) is the witness

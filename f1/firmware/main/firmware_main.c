@@ -61,9 +61,12 @@
 #define RGB_GPIO        38     /* DevKitC-1 v1.1 onboard WS2812; v1.0 boards use 48 */
 
 /* Status colours, dim enough to look at — the LED is blinding at full duty.
- * Red = booting or a check failed, green = all well, blue = performing. */
+ * Red = booting or a check failed, green = all well, blue = performing.
+ * Nominal green is arousal-graded: an ember asleep, full green awake
+ * (George read the watch toggle as waking him, and he's right). */
 #define RGB_RED         32, 0, 0
 #define RGB_GREEN       0, 32, 0
+#define RGB_GREEN_DIM   0, 5, 0
 #define RGB_BLUE        0, 0, 48
 #define RGB_BLACK       0, 0, 0
 #define RGB_WHIFF       48, 24, 0
@@ -357,6 +360,8 @@ static void drive(int left_pct, int right_pct)
     motor_set(MOTOR_R_IN1_CH, MOTOR_R_IN2_CH, right_pct);
 }
 
+static void led_nominal(void);   /* the resting green, sleep/wake graded */
+
 /* "I'm alive and all is well": wiggle on the spot with blue winks on the
  * beats, then settle to green. One function per performance until there
  * are enough of them to be worth a dispatcher. */
@@ -371,7 +376,7 @@ static void perform_alive(void)
         vTaskDelay(pdMS_TO_TICKS(100));
     }
     drive(0, 0);
-    rgb_set(RGB_GREEN);
+    led_nominal();
 }
 
 /* "Hello": the greeting when the watcher whiffs warmth. */
@@ -386,7 +391,7 @@ static void perform_hello(void)
         vTaskDelay(pdMS_TO_TICKS(200));
     }
     drive(0, 0);
-    rgb_set(RGB_GREEN);
+    led_nominal();
 }
 
 /* "Found you!": a quick excited shimmy, used when the hunt spots heat. */
@@ -488,7 +493,7 @@ static void held_check(const float dps[3], const float g[3])
         } else if (now - held_quiet_since > HELD_OFF_MS * 1000) {
             held = false;
             held_ticks = 0;
-            rgb_set(RGB_GREEN);
+            led_nominal();
             printf("set down\n");
             if (now - held_since < GEST_LIFT_MAX_S * 1000000LL) {
                 if (++gest_count >= 2) {
@@ -571,6 +576,18 @@ static bool watch_whiff_pending;   /* a whiff called this look */
 static int watch_whiff_sign;       /* drive sign toward the last whiff */
 static float watch_whiff_deg;      /* its degrees off boresight */
 
+/* The resting green, graded by arousal: a dim ember while the watcher
+ * sleeps, full green awake. Every "settle back to normal" goes through
+ * here so sleep and wakefulness read at a glance. */
+static void led_nominal(void)
+{
+    if (watch_state == WATCH_OFF) {
+        rgb_set(RGB_GREEN_DIM);
+    } else {
+        rgb_set(RGB_GREEN);
+    }
+}
+
 static float watch_frand(void)
 {
     return ((esp_random() >> 8) + 0.5f) / 16777216.0f;   /* (0,1) */
@@ -613,7 +630,7 @@ static void watch_toggle(void)
         drive(0, 0);
         rgb_set(RGB_RED);
         vTaskDelay(pdMS_TO_TICKS(800));
-        rgb_set(RGB_GREEN);
+        led_nominal();   /* back to sleep: the ember */
         printf("watcher: off\n");
     } else if (!amg_ok) {
         printf("no thermal camera, no watcher\n");
@@ -624,13 +641,13 @@ static void watch_toggle(void)
             rgb_set(RGB_BLACK);
             vTaskDelay(pdMS_TO_TICKS(100));
         }
-        rgb_set(RGB_GREEN);
         watch_bg_seed = true;
         watch_prev_held = false;
         watch_whiff_pending = false;
         watch_hello_done = false;
         watch_deadline = esp_timer_get_time() + watch_soon_us();
         watch_state = WATCH_REST;
+        led_nominal();   /* awake: full green */
         printf("watcher: on (w or double lift-down to stop)\n");
     }
 }
@@ -640,7 +657,7 @@ static void watch_toggle(void)
 static void watch_settle(int64_t now)
 {
     drive(0, 0);
-    rgb_set(RGB_GREEN);
+    led_nominal();
     watch_bg_seed = true;
     float rest = watch_draw_s();
     watch_deadline = now + (int64_t)(rest * 1000000.0f);
@@ -731,7 +748,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
                 perform_hello();        /* ends on green */
                 watch_bg_seed = true;   /* the wiggle moved the eye a little */
             } else {
-                rgb_set(RGB_GREEN);     /* noticed, said nothing */
+                led_nominal();          /* noticed, said nothing */
             }
             int64_t soon = watch_soon_us();
             if (watch_deadline > now + soon) {
@@ -961,7 +978,7 @@ static void cal_run(int delay_s)
     if (delay_s > 0) {
         printf("cal: starting in %d s\n", delay_s);
         countdown_winks(delay_s);
-        rgb_set(RGB_GREEN);
+        led_nominal();
     }
     for (int i = 0; i < sizeof(cal_seq) / sizeof(cal_seq[0]); i++) {
         printf("cal: left %d right %d for %d ms\n",
@@ -1001,7 +1018,7 @@ static void handle_line(char *line)
     if (sscanf(line, "m %d %d %d", &l, &r, &dl) == 3) {
         printf("motors: left %d right %d in %d s\n", l, r, dl);
         countdown_winks(dl);   /* time to put him down */
-        rgb_set(RGB_GREEN);
+        led_nominal();
         drive(l, r);
     } else if (sscanf(line, "m %d %d", &l, &r) == 2) {
         drive(l, r);
@@ -1099,7 +1116,7 @@ void app_main(void)
            rr == ESP_RST_INT_WDT || rr == ESP_RST_TASK_WDT ||
            rr == ESP_RST_WDT ? "watchdog" : "other");
     if (amg_ok && ina_ok && lsm_ok) {
-        rgb_set(RGB_GREEN);
+        led_nominal();   /* he boots up asleep: the ember */
         if (rr == ESP_RST_POWERON) {
             perform_alive();
         } else {
