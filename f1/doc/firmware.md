@@ -119,7 +119,10 @@ two-syllable swing — the coaxing precursor), after which the
 background reseeds (the wiggle moved the eye a little) and the
 visitor waits as wallpaper for the look. Later whiffs in the same
 rest get the amber beat only, still updating the remembered angle
-and pulling the look closer: noticed, said nothing. The look now **ends facing the best thing it
+and pulling the look closer: noticed, said nothing. And sometimes
+the hello is **withheld anyway** — 15% fresh, rising to 60% on a
+flat pack — and the shrug spends the rest's hello, so greeting is
+never a certainty and tiredness reads as standoffishness. The look now **ends facing the best thing it
 showed**: the sweep remembers the yaw of peak gaze-drag and turns
 back to it by the shortest way round; if nothing rose above the gaze
 deadband the whole circle, it turns instead to the remembered angle of

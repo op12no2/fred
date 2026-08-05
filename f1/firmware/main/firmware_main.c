@@ -542,6 +542,11 @@ static void held_check(const float dps[3], const float g[3])
                                        trusted (quiet_room_sat) */
 #define WATCH_CENTER_COL    3.2f    /* boresight column (measured) */
 #define WATCH_COL_DEG       7.5f    /* camera columns to degrees */
+#define WATCH_SHRUG_FRESH   0.15f   /* odds the first whiff's hello is
+                                       withheld anyway — greeting is
+                                       never a certainty */
+#define WATCH_SHRUG_TIRED   0.60f   /* ...on a flat pack: mostly can't
+                                       be bothered */
 #define WATCH_REORIENT_MIN_DEG 5.0f /* not worth turning back for less */
 #define WATCH_REORIENT_TIMEOUT_S 15
 
@@ -710,8 +715,15 @@ static void watch_step(const int16_t px[64], const float dps[3],
             watch_whiff_sign = off > 0 ? -1 : 1;
             watch_whiff_deg = fabsf(off) * WATCH_COL_DEG;
             watch_whiff_pending = true;
-            printf("watch: whiff (+%.1f C), %slooking soon\n", maxdev,
-                   watch_hello_done ? "" : "hello, ");
+            const char *say = "hello, ";
+            if (watch_hello_done) {
+                say = "";
+            } else if (watch_frand() < WATCH_SHRUG_FRESH + watch_mood() *
+                       (WATCH_SHRUG_TIRED - WATCH_SHRUG_FRESH)) {
+                say = "can't be bothered, ";
+                watch_hello_done = true;   /* the shrug spends the hello */
+            }
+            printf("watch: whiff (+%.1f C), %slooking soon\n", maxdev, say);
             rgb_set(RGB_WHIFF);
             vTaskDelay(pdMS_TO_TICKS(WATCH_WHIFF_BEAT_MS));
             if (!watch_hello_done) {
