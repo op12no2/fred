@@ -372,6 +372,7 @@ static void drive(int left_pct, int right_pct)
 }
 
 static void led_nominal(void);   /* the resting green, sleep/wake graded */
+static bool watch_grumpy;        /* woken too soon — see the watcher */
 
 /* Performances hold blue for the whole act and settle to nominal on
  * exit — one convention, no colour changes mid-act (if a performance
@@ -408,15 +409,18 @@ static void perform_hello(void)
 }
 
 /* "I'm awake": a lazy stretch — lean forward, hold it, settle back.
- * Runs at every wake; it may nose an obstacle, and that's fine. */
+ * Runs at every wake; it may nose an obstacle, and that's fine.
+ * Woken too soon, the lean drags (slower, so a little shorter) and
+ * the hold lasts twice as long. */
 static void perform_awake(void)
 {
+    int duty = watch_grumpy ? 28 : 35;   /* both above the deadband */
     rgb_set(RGB_BLUE);
-    drive(35, 35);   /* above the ~30% standstill deadband */
+    drive(duty, duty);
     vTaskDelay(pdMS_TO_TICKS(500));
     drive(0, 0);
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    drive(-35, -35);
+    vTaskDelay(pdMS_TO_TICKS(watch_grumpy ? 2000 : 1000));
+    drive(-duty, -duty);
     vTaskDelay(pdMS_TO_TICKS(500));
     drive(0, 0);
     led_nominal();
@@ -622,6 +626,10 @@ static void held_check(const float dps[3], const float g[3])
                                        never a certainty */
 #define WATCH_SHRUG_TIRED   0.60f   /* ...on a flat pack: mostly can't
                                        be bothered */
+#define WATCH_GRUMPY_FRAC   0.25f   /* woken in the first quarter of a
+                                       sleep = woken too soon */
+#define WATCH_SHRUG_GRUMPY  0.90f   /* grumpy shrug odds, first rest only —
+                                       the first look walks it off */
 #define WATCH_REORIENT_MIN_DEG 5.0f /* not worth turning back for less */
 #define WATCH_REORIENT_TIMEOUT_S 15
 #define WATCH_WIND_MAX_S    2700    /* second wind: total extra awake time
@@ -656,6 +664,7 @@ static float watch_best_yaw;       /* ...and the yaw it was seen at */
 static bool watch_glimpse_pending;   /* a glimpse called this look */
 static int64_t watch_cycle_at;     /* next autonomous sleep/wake toggle */
 static int64_t watch_woke_at;      /* start of this awake span */
+static int64_t watch_slept_at;     /* start of this sleep span */
 static float watch_wind_s;         /* second-wind pot left this span */
 static float watch_doze_s;         /* nothing-doing pot left this span */
 static bool watch_duty;            /* the rhythm: armed by the first wake,
@@ -901,8 +910,8 @@ static void watch_toggle(void)
         float span = watch_lognormal_s(WATCH_SLEEP_MED_S * watch_tired(),
                                        WATCH_CYCLE_SIGMA,
                                        WATCH_SLEEP_MIN_S, WATCH_SLEEP_MAX_S);
-        watch_cycle_at = esp_timer_get_time() +
-                         (int64_t)(span * 1000000.0f);
+        watch_slept_at = esp_timer_get_time();
+        watch_cycle_at = watch_slept_at + (int64_t)(span * 1000000.0f);
         rgb_set(RGB_RED);
         vTaskDelay(pdMS_TO_TICKS(800));
         led_nominal();   /* back to sleep: the ember */
@@ -921,6 +930,13 @@ static void watch_toggle(void)
         watch_glimpse_pending = false;
         watch_hello_done = false;
         knock_felt = false;   /* pokes from before the wake don't count */
+        /* woken in the first quarter of the sleep he'd drawn = woken
+         * too soon: the stretch drags and the first hello is unlikely,
+         * until the first look walks it off */
+        watch_grumpy = watch_slept_at > 0 && watch_cycle_at > watch_slept_at &&
+                       esp_timer_get_time() - watch_slept_at <
+                       (int64_t)((watch_cycle_at - watch_slept_at) *
+                                 WATCH_GRUMPY_FRAC);
         watch_deadline = esp_timer_get_time() + watch_soon_us();
         watch_duty = true;   /* the rhythm starts with the first wake */
         float span = watch_lognormal_s(WATCH_AWAKE_MED_S / watch_tired(),
@@ -935,6 +951,9 @@ static void watch_toggle(void)
         watch_state = WATCH_REST;
         printf("watcher: on (awake ~%.0f min; w or double lift-down "
                "to stop)\n", span / 60.0f);
+        if (watch_grumpy) {
+            printf("watch: woken too soon — grumpy until the first look\n");
+        }
         perform_awake();   /* the waking stretch; ends on full green */
     }
 }
@@ -1042,8 +1061,10 @@ static void watch_step(const int16_t px[64], const float dps[3],
             const char *say = "hello, ";
             if (watch_hello_done) {
                 say = "";
-            } else if (watch_frand() < WATCH_SHRUG_FRESH + watch_mood() *
-                       (WATCH_SHRUG_TIRED - WATCH_SHRUG_FRESH)) {
+            } else if (watch_frand() <
+                       (watch_grumpy ? WATCH_SHRUG_GRUMPY
+                                     : WATCH_SHRUG_FRESH + watch_mood() *
+                                       (WATCH_SHRUG_TIRED - WATCH_SHRUG_FRESH))) {
                 say = "can't be bothered, ";
                 watch_hello_done = true;   /* the shrug spends the hello */
             }
@@ -1069,6 +1090,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
             watch_sign = (esp_random() & 1) ? 1 : -1;
             watch_best_drag = 0;
             watch_hello_done = false;   /* the look re-arms the hello */
+            watch_grumpy = false;       /* and walks off the grump */
             watch_look_until = now + WATCH_TURN_TIMEOUT_S * 1000000LL;
             watch_state = WATCH_LOOK;
             rgb_set(RGB_BLUE);

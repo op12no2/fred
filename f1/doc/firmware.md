@@ -193,7 +193,10 @@ tiredness; asleep median 1 h fresh, **stretched** ×3 (sigma 0.5,
 clamped 20 min–6 h and 15 min–4 h). So waking a sleeping f1 grants a
 full awake span and putting him to sleep earns a full sleep — the
 gesture genuinely matters, it never just pauses a timer. Every wake —
-manual or his own — opens with the I'm-awake stretch. And the day's
+manual or his own — opens with the I'm-awake stretch; woken in the
+first quarter of the sleep he'd drawn, he's **grumpy**: the stretch
+drags, the first hello is 90% withheld, and the first look walks it
+off. And the day's
 content gets a vote on bedtime: each wake grants two finite pots, a
 **second wind** (45 min fresh, ÷3 tired) that interesting events — a
 glimpse at rest, a gaze the look confirmed — spend pushing sleep later,
