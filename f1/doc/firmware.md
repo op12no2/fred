@@ -219,7 +219,14 @@ retreat/approach, acts delimited by lift/down blips in the `held`
 column); throwaway dumps stay untracked in `firmware/` as
 `log.firmware.<timestamp>.txt`.
 
-Two wrinkles in retrieving a run, both monitor-side. PSRAM is wiped by
+One wrinkle in making a run: the recorder *is* the 10 Hz tick task,
+so a gesture-launched performance (the flip-armed sprint) blocks its
+own recording — sprint.log holds an 11 s hole where the sprint
+happened, then a burst of catch-up rows at 12 ms spacing. To record
+a sprint, trigger it from the console (`p s`): that runs in the
+console task and the tick keeps ticking.
+
+Two more wrinkles in retrieving a run, both monitor-side. PSRAM is wiped by
 reset, and `idf.py monitor` resets the chip on connect — always attach
 with `idf.py monitor --no-reset` (monitor.sh does). And `d` only writes
 to the serial wire; the file is made by whatever is listening, so
