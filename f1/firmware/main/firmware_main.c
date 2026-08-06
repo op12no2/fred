@@ -157,22 +157,6 @@ static esp_err_t amg_read_pixels(int16_t px[64])
     return ESP_OK;
 }
 
-/* Mean of all 64 pixels in degrees C. */
-static esp_err_t amg_read_mean(float *mean)
-{
-    int16_t px[64];
-    esp_err_t err = amg_read_pixels(px);
-    if (err != ESP_OK) {
-        return err;
-    }
-    int sum = 0;
-    for (int i = 0; i < 64; i++) {
-        sum += px[i];
-    }
-    *mean = sum * 0.25f / 64.0f;
-    return ESP_OK;
-}
-
 static esp_err_t ina_read_reg(uint8_t reg, uint16_t *val)
 {
     uint8_t raw[2];
@@ -1698,7 +1682,8 @@ static void print_help(void)
            "  m <l> <r> [secs]   set motor speeds, -100..100, after an\n"
            "                     optional delay (m 20 -20 10)\n"
            "  s                  stop (coast; the driver sleeps itself)\n"
-           "  t                  read thermal mean\n"
+           "  t                  thermal frame as an 8x8 heat map, plus\n"
+           "                     the mean\n"
            "  v                  read pack voltage and current\n"
            "  g                  read gyro and accelerometer\n"
            "  w                  watcher on/off (or: double lift-down gesture)\n"
@@ -1731,9 +1716,39 @@ static void handle_line(char *line)
         drive(0, 0);
         printf("motors: stopped\n");
     } else if (strcmp(line, "t") == 0) {
-        float mean;
-        if (amg_ok && amg_read_mean(&mean) == ESP_OK) {
-            printf("%.2f C\n", mean);
+        int16_t px[64];
+        if (amg_ok && amg_read_pixels(px) == ESP_OK) {
+            /* the frame as a heat map: blue -> red through the ANSI
+             * 256-colour cube, scaled to the frame itself with a 4 C
+             * floor so an empty room reads flat instead of amplifying
+             * pixel noise (±2.5 C) into a rainbow */
+            static const uint8_t heat[] = {
+                17, 18, 19, 20, 21, 27, 33, 39, 45, 51, 50, 49, 48,
+                47, 46, 82, 118, 154, 190, 226, 220, 214, 208, 202, 196
+            };
+            float t[64], lo = 1000, hi = -1000, sum = 0;
+            for (int i = 0; i < 64; i++) {
+                t[i] = px[i] * 0.25f;
+                sum += t[i];
+                if (t[i] < lo) {
+                    lo = t[i];
+                }
+                if (t[i] > hi) {
+                    hi = t[i];
+                }
+            }
+            float span = hi - lo < 4.0f ? 4.0f : hi - lo;
+            for (int row = 0; row < 8; row++) {
+                for (int col = 0; col < 8; col++) {
+                    float v = t[row * 8 + col];
+                    int idx = (int)((v - lo) / span *
+                                    (sizeof(heat) - 1) + 0.5f);
+                    printf("\x1b[48;5;%dm\x1b[30m%5.1f \x1b[0m",
+                           heat[idx], v);
+                }
+                printf("\n");
+            }
+            printf("mean %.2f C, min %.1f, max %.1f\n", sum / 64, lo, hi);
         } else {
             printf("sensor read failed\n");
         }
