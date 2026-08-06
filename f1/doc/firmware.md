@@ -46,8 +46,10 @@ stillness. The gyro's real gift is knowing when he's been picked up.
   know he's on a table. Afterwards he prints his own telemetry — peak
   spin dps and minimum pack volts: full duty from rest is the pack's
   hardest yank, so the sprint doubles as its stress test (suspect it
-  in any reset near 5.2 V). One function per performance, repertoire
-  grows. All
+  in any reset near 5.2 V). A finished sprint earns a **breather** —
+  the next look waits a minute or so; the launch genuinely sagged the
+  pack, and now he acts like it. One function per performance,
+  repertoire grows. All
   performances hold blue for the whole act and settle to nominal on
   exit — no colour changes mid-act (push/pop can come later if one
   ever runs atop a colour worth keeping).

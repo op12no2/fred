@@ -711,6 +711,9 @@ static void led_nominal(void)
 #define SPRINT_TURN_DEG  180.0f
 #define SPRINT_SPIN_TIMEOUT_MS 3000
 #define SPRINT_GUARD_DPS 60.0f   /* yaw he never shows driving straight */
+#define SPRINT_BREATHER_S 75     /* catching his breath: the next look
+                                    waits about this long (the launch
+                                    genuinely sagged the pack) */
 #define SPRINT_BAD_TICKS 12      /* ~120 ms sustained before a moving abort:
                                     launch vibration (p99 0.24 g at 10 Hz)
                                     spikes across the tilt line, a lift
@@ -823,11 +826,20 @@ static void perform_sprint(void)
     led_nominal();
     if (!ok) {
         printf("sprint: aborted\n");
-    } else if (sprint_vmin < 90.0f) {
+        return;
+    }
+    if (sprint_vmin < 90.0f) {
         printf("sprint: peak spin %.0f dps, pack dipped to %.2f V\n",
                peak, sprint_vmin);
     } else {
         printf("sprint: peak spin %.0f dps\n", peak);
+    }
+    if (watch_state == WATCH_REST) {
+        /* the breather: that genuinely cost him — the next look waits */
+        int br = SPRINT_BREATHER_S / 2 +
+                 (int)(esp_random() % (SPRINT_BREATHER_S + 1));
+        watch_deadline = esp_timer_get_time() + (int64_t)br * 1000000LL;
+        printf("sprint: catching his breath (~%d s)\n", br);
     }
 }
 
