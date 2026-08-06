@@ -180,7 +180,10 @@ the glimpse that called the look (degrees off the measured 3.2
 boresight, mirrored sign as field-tested); if there was neither, he
 stops where the circle ended. The spin itself teaches which drive
 sign yaws which way, so the settle turn needs no calibration
-constant. Then reseed and rest as usual. The full look stays deferred
+constant. When a glimpse called the look and the circle found
+nothing, the settle at the promised angle ends in one small
+head-shake — *huh, could have sworn* — so a satisfied look and a
+puzzled one read differently. Then reseed and rest as usual. The full look stays deferred
 and jittered (every "soon" is `WATCH_SOON_S` ± half); transitions
 print with mood and volts; `ws` column (1 rest, 2 look, 3 reorient)
 in the recorder.

@@ -665,6 +665,8 @@ static bool watch_glimpse_pending;   /* a glimpse called this look */
 static int64_t watch_cycle_at;     /* next autonomous sleep/wake toggle */
 static int64_t watch_woke_at;      /* start of this awake span */
 static int64_t watch_slept_at;     /* start of this sleep span */
+static bool watch_huh;             /* a glimpse called the look, the look
+                                       found nothing: puzzled settle */
 static float watch_wind_s;         /* second-wind pot left this span */
 static float watch_doze_s;         /* nothing-doing pot left this span */
 static bool watch_duty;            /* the rhythm: armed by the first wake,
@@ -963,6 +965,19 @@ static void watch_toggle(void)
 static void watch_settle(int64_t now)
 {
     drive(0, 0);
+    if (watch_huh) {
+        /* the glimpse promised something and the circle found nothing:
+         * one small head-shake at the promised angle — I could have
+         * sworn... */
+        watch_huh = false;
+        vTaskDelay(pdMS_TO_TICKS(150));
+        drive(30, -30);
+        vTaskDelay(pdMS_TO_TICKS(80));
+        drive(-30, 30);
+        vTaskDelay(pdMS_TO_TICKS(80));
+        drive(0, 0);
+        printf("watch: huh — could have sworn\n");
+    }
     led_nominal();
     watch_bg_seed = true;
     float rest = watch_draw_s();
@@ -1131,6 +1146,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
                 target = (watch_glimpse_sign == watch_sign ? ysign : -ysign)
                          * watch_glimpse_deg;
                 have = true;
+                watch_huh = true;   /* promised, not delivered */
             } else {
                 watch_bedtime_nudge(false);   /* an empty circle no glimpse
                                                  even called for */
