@@ -74,7 +74,6 @@ the ESP32**, the reservoir stays **down in the cavity with the driver**.
 | LSM6DSOX spare QT port | INA219 QT port | QT cable | |
 | Pack + (after switch) | INA219 VIN+ | red | shunt inserted in the pack + lead |
 | INA219 VIN− | 6V rail entry | red | run both legs up/down as a twisted pair |
-| 6V rail | GND rail | — | yellow power LED + 1 kΩ series (~3 mA), on the power veroboard after the shunt so the INA219 accounts for it |
 | ESP32 GPIO11 | GND | orange | wake LED + 1 kΩ series (~1.3 mA), on the shelf board: on = awake, off = asleep |
 | DRV8833 AOUT1/AOUT2 | right motor | red / black | soldered with polarity inverted |
 | DRV8833 BOUT1/BOUT2 | left motor | red / black | soldered with polarity inverted |
