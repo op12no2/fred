@@ -31,7 +31,9 @@ stillness. The gyro's real gift is knowing when he's been picked up.
   settle back — runs at every wake; it may nose an obstacle, and
   that's fine), `p s` sprint — George's "how fast can he go?": a 5 s
   countdown-wink fuse (with a safety poll under it: handling, tilt or
-  unexpected rotation aborts, before and during), a full-duty second
+  unexpected rotation aborts — instantly while he's stationary, but
+  sustained ~120 ms once moving, since launch vibration (p99 0.24 g)
+  spikes across the tilt line where a real lift stays), a full-duty second
   out, a fast gyro-metered 180 (60% duty — the ±500 dps gyro must not
   saturate or the meter over-rotates), and a second home, easing off
   over each leg's last 300 ms so he pulls up rather than skids. Also

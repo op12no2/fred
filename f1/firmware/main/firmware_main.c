@@ -695,12 +695,19 @@ static void led_nominal(void)
 #define SPRINT_TURN_DEG  180.0f
 #define SPRINT_SPIN_TIMEOUT_MS 3000
 #define SPRINT_GUARD_DPS 60.0f   /* yaw he never shows driving straight */
+#define SPRINT_BAD_TICKS 12      /* ~120 ms sustained before a moving abort:
+                                    launch vibration (p99 0.24 g at 10 Hz)
+                                    spikes across the tilt line, a lift
+                                    stays across it */
 
 static float sprint_vmin;
+static int sprint_bad;
 
-/* One safety poll: handling, tilt, unexpected yaw (0 = spinning on
- * purpose, don't judge), and the running pack-volts minimum. */
-static bool sprint_safe(float max_dps, float *gz)
+/* One safety poll: handling, tilt, unexpected yaw (max_dps 0 =
+ * spinning on purpose, don't judge), and the running pack-volts
+ * minimum. Tilt/yaw must persist bad_ticks consecutive polls —
+ * 1 while stationary (the fuse), SPRINT_BAD_TICKS while moving. */
+static bool sprint_safe(float max_dps, int bad_ticks, float *gz)
 {
     float dps[3], g[3], v, ma;
     if (held) {
@@ -709,19 +716,16 @@ static bool sprint_safe(float max_dps, float *gz)
     if (lsm_read(dps, g) != ESP_OK) {
         return false;
     }
-    if (g[2] < HELD_DRIVE_AZ) {
-        return false;   /* lifted, climbing, or falling */
-    }
-    if (max_dps > 0 && fabsf(dps[2]) > max_dps) {
-        return false;   /* someone or something is turning him */
-    }
+    bool bad = g[2] < HELD_DRIVE_AZ ||               /* lifted or falling */
+               (max_dps > 0 && fabsf(dps[2]) > max_dps);   /* turned */
+    sprint_bad = bad ? sprint_bad + 1 : 0;
     if (gz) {
         *gz = dps[2];
     }
     if (ina_ok && ina_read(&v, &ma) == ESP_OK && v > 3.0f && v < sprint_vmin) {
         sprint_vmin = v;
     }
-    return true;
+    return sprint_bad < bad_ticks;
 }
 
 static bool sprint_leg(int ms)
@@ -734,7 +738,7 @@ static bool sprint_leg(int ms)
             pct = SPRINT_RUN_PCT * (ms - el) / SPRINT_DECEL_MS;
         }
         drive(pct, pct);
-        if (!sprint_safe(SPRINT_GUARD_DPS, NULL)) {
+        if (!sprint_safe(SPRINT_GUARD_DPS, SPRINT_BAD_TICKS, NULL)) {
             return false;
         }
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -749,7 +753,7 @@ static bool sprint_spin(float *peak)
     drive(SPRINT_SPIN_PCT, -SPRINT_SPIN_PCT);
     while (fabsf(yaw) < SPRINT_TURN_DEG) {
         vTaskDelay(pdMS_TO_TICKS(10));
-        if (!sprint_safe(0, &gz)) {
+        if (!sprint_safe(0, SPRINT_BAD_TICKS, &gz)) {
             return false;
         }
         int64_t now = esp_timer_get_time();
@@ -779,16 +783,17 @@ static void perform_sprint(void)
         }
     }
     sprint_vmin = 99.0f;
+    sprint_bad = 0;
     bool ok = true;
     for (int i = 0; ok && i < SPRINT_FUSE_S; i++) {
         rgb_set(RGB_BLUE);
         for (int j = 0; ok && j < 20; j++) {
-            ok = sprint_safe(HELD_DPS, NULL);
+            ok = sprint_safe(HELD_DPS, 1, NULL);
             vTaskDelay(pdMS_TO_TICKS(10));
         }
         rgb_set(RGB_BLACK);
         for (int j = 0; ok && j < 80; j++) {
-            ok = sprint_safe(HELD_DPS, NULL);
+            ok = sprint_safe(HELD_DPS, 1, NULL);
             vTaskDelay(pdMS_TO_TICKS(10));
         }
     }
