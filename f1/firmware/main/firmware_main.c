@@ -71,6 +71,10 @@
 #define RGB_BLACK       0, 0, 0
 #define RGB_GLIMPSE     48, 24, 0
 #define RGB_HELD        48, 0, 48
+#define RGB_DREAM       0, 12, 0    /* the ember, briefly brighter */
+#define DREAM_MED_S     180         /* median seconds between dreams —
+                                       pure theatre, the one dishonest
+                                       light he's allowed */
 
 #define WAKE_LED_GPIO   11     /* discrete orange LED, 1 kOhm to GND, on the
                                   shelf: on = awake, off = asleep — readable
@@ -1257,6 +1261,12 @@ static void tick_task(void *arg)
         }
         if (watch_state != WATCH_OFF && imu_ok && px_ok) {
             watch_step(pxbuf, dps, volts, pwr_ok);
+        } else if (watch_state == WATCH_OFF && !held &&
+                   esp_random() % (DREAM_MED_S * TICK_HZ) == 0) {
+            /* dreaming: a rare soft swell of the ember, asleep only */
+            rgb_set(RGB_DREAM);
+            vTaskDelay(pdMS_TO_TICKS(300));
+            led_nominal();
         }
         if (!rec_on || rec_cap == 0) {
             continue;

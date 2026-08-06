@@ -217,7 +217,11 @@ the pack, which shrinks tomorrow's wind pot and stretches sleep — a
 big evening earns a long lie-in with no code saying so. Asleep is
 watcher-off: the ember LED, with pickup and the gesture still
 listening — sleep stays sacred, no glimpse shortens it, or he was never
-really asleep and the wake gesture would cheapen. He won't cycle while held; "watch: nodding off" / "waking
+really asleep and the wake gesture would cheapen. Once every few
+minutes of sleep the ember **swells briefly: dreaming**. It is the
+one dishonest light he's allowed — no sensor behind it, pure
+theatre — and it's labelled as such in the code so the exception
+stays an exception. He won't cycle while held; "watch: nodding off" / "waking
 by himself" on the console, and each toggle prints its drawn span.
 Power-cycling returns him to deep sleep — the honest meaning of a
 power cycle.
