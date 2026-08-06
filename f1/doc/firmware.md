@@ -145,9 +145,23 @@ or autonomous alike: awake median 2 h fresh, **shrunk** ÷3 by
 tiredness; asleep median 1 h fresh, **stretched** ×3 (sigma 0.5,
 clamped 20 min–6 h and 15 min–4 h). So waking a sleeping f1 grants a
 full awake span and putting him to sleep earns a full sleep — the
-gesture genuinely matters, it never just pauses a timer. Asleep is
+gesture genuinely matters, it never just pauses a timer. And the day's
+content gets a vote on bedtime: each wake grants two finite pots, a
+**second wind** (45 min fresh, ÷3 tired) that interesting events — a
+whiff at rest, a gaze the look confirmed — spend pushing sleep later,
+and a **nothing doing** pot (30 min fresh, ×3 tired) that looks finding
+nothing at all spend pulling it closer. Each event takes a fixed
+fraction of its pot's *remainder*, so the first whiff of the evening is
+worth the most and the effect saturates geometrically — a busy room
+can't keep him up forever, and the same child genuinely can't keep a
+tired f1 up as long. Because whiffs are edge-triggered and the
+background reseeds after every look, parked warmth becomes wallpaper
+and stops paying: only *change* keeps him up. Staying up later drains
+the pack, which shrinks tomorrow's wind pot and stretches sleep — a
+big evening earns a long lie-in with no code saying so. Asleep is
 watcher-off: the ember LED, with pickup and the gesture still
-listening. He won't cycle while held; "watch: nodding off" / "waking
+listening — sleep stays sacred, no whiff shortens it, or he was never
+really asleep and the wake gesture would cheapen. He won't cycle while held; "watch: nodding off" / "waking
 by himself" on the console, and each toggle prints its drawn span.
 Power-cycling returns him to deep sleep — the honest meaning of a
 power cycle.

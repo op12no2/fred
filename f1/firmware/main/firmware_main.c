@@ -564,6 +564,17 @@ static void held_check(const float dps[3], const float g[3])
                                        be bothered */
 #define WATCH_REORIENT_MIN_DEG 5.0f /* not worth turning back for less */
 #define WATCH_REORIENT_TIMEOUT_S 15
+#define WATCH_WIND_MAX_S    2700    /* second wind: total extra awake time
+                                       the day's events can earn, fresh —
+                                       tiredness shrinks it (/3 fully tired) */
+#define WATCH_WIND_FRAC     0.3f    /* each event takes this fraction of the
+                                       pot's remainder: geometric, so the
+                                       first whiff of the evening matters
+                                       most and a busy room can't run away */
+#define WATCH_DOZE_MAX_S    1800    /* nothing doing: total awake time boring
+                                       looks can dock, fresh — tiredness
+                                       stretches it (x3 fully tired) */
+#define WATCH_DOZE_FRAC     0.2f
 
 typedef enum { WATCH_OFF = 0, WATCH_REST, WATCH_LOOK, WATCH_ORIENT } watch_state_t;
 
@@ -584,6 +595,9 @@ static float watch_best_drag;      /* warmest moment of the sweep... */
 static float watch_best_yaw;       /* ...and the yaw it was seen at */
 static bool watch_whiff_pending;   /* a whiff called this look */
 static int64_t watch_cycle_at;     /* next autonomous sleep/wake toggle */
+static int64_t watch_woke_at;      /* start of this awake span */
+static float watch_wind_s;         /* second-wind pot left this span */
+static float watch_doze_s;         /* nothing-doing pot left this span */
 static bool watch_duty;            /* the rhythm: armed by the first wake,
                                       deep sleep from power-on until then */
 static int watch_whiff_sign;       /* drive sign toward the last whiff */
@@ -646,6 +660,32 @@ static float watch_draw_s(void)
                              WATCH_LOOK_MIN_S, WATCH_LOOK_MAX_S);
 }
 
+/* The day's content gets a vote on bedtime. Interesting events — a
+ * whiff at rest, a gaze the look confirmed — spend the second-wind pot
+ * pushing sleep later; a look that found nothing at all spends the
+ * nothing-doing pot pulling it closer. Each takes a fraction of what's
+ * left in its pot, so the first event of the evening matters most and
+ * neither direction can run away; the deadline stays inside the usual
+ * awake clamps, measured from wake. */
+static void watch_bedtime_nudge(bool interesting)
+{
+    float take;
+    if (interesting) {
+        take = watch_wind_s * WATCH_WIND_FRAC;
+        watch_wind_s -= take;
+    } else {
+        take = -(watch_doze_s * WATCH_DOZE_FRAC);
+        watch_doze_s += take;
+    }
+    int64_t at = watch_cycle_at + (int64_t)(take * 1000000.0f);
+    int64_t lo = watch_woke_at + WATCH_AWAKE_MIN_S * 1000000LL;
+    int64_t hi = watch_woke_at + WATCH_AWAKE_MAX_S * 1000000LL;
+    watch_cycle_at = at < lo ? lo : at > hi ? hi : at;
+    printf(interesting ? "watch: worth staying up for (+%.1f min)\n"
+                       : "watch: nothing doing (bedtime -%.1f min)\n",
+           fabsf(take) / 60.0f);
+}
+
 /* Shared by the console (w) and the double lift-down gesture. The
  * winks are the acknowledgment: blue-blue = watching, amber = not. */
 static void watch_toggle(void)
@@ -680,8 +720,12 @@ static void watch_toggle(void)
         float span = watch_lognormal_s(WATCH_AWAKE_MED_S / watch_tired(),
                                        WATCH_CYCLE_SIGMA,
                                        WATCH_AWAKE_MIN_S, WATCH_AWAKE_MAX_S);
-        watch_cycle_at = esp_timer_get_time() +
-                         (int64_t)(span * 1000000.0f);
+        watch_woke_at = esp_timer_get_time();
+        watch_cycle_at = watch_woke_at + (int64_t)(span * 1000000.0f);
+        /* the bedtime pots, tiredness-asymmetric like the spans: a tired
+         * f1 is harder to keep up and quicker to give up on a dead room */
+        watch_wind_s = WATCH_WIND_MAX_S / watch_tired();
+        watch_doze_s = WATCH_DOZE_MAX_S * watch_tired();
         watch_state = WATCH_REST;
         led_nominal();   /* awake: full green */
         printf("watcher: on (awake ~%.0f min; w or double lift-down "
@@ -778,6 +822,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
                 watch_hello_done = true;   /* the shrug spends the hello */
             }
             printf("watch: whiff (+%.1f C), %slooking soon\n", maxdev, say);
+            watch_bedtime_nudge(true);   /* someone appeared */
             rgb_set(RGB_WHIFF);
             vTaskDelay(pdMS_TO_TICKS(WATCH_WHIFF_BEAT_MS));
             if (!watch_hello_done) {
@@ -831,12 +876,16 @@ static void watch_step(const int16_t px[64], const float dps[3],
             if (watch_best_drag > 0) {
                 target = watch_best_yaw;
                 have = true;
+                watch_bedtime_nudge(true);    /* still there when he looked */
             } else if (watch_whiff_pending) {
                 /* the whiff's angle, mapped into this spin's yaw frame */
                 float ysign = watch_yaw >= 0 ? 1.0f : -1.0f;
                 target = (watch_whiff_sign == watch_sign ? ysign : -ysign)
                          * watch_whiff_deg;
                 have = true;
+            } else {
+                watch_bedtime_nudge(false);   /* an empty circle no whiff
+                                                 even called for */
             }
             watch_whiff_pending = false;
             if (have) {
