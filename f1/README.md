@@ -13,6 +13,9 @@ cavity (pack central for balance, motors, driver and rails at the back),
 while the ESP32 veroboard and gyro ride above it, in full view. 
 The camera pokes out of the front on 6 mm standoffs.
 
+All-up weight: **551 g**, of which the 4xAA pack is 113 g (weighed
+2026-08-06, full build).
+
 ## Docs
 
 - [Parts](./doc/parts.md)
