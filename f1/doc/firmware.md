@@ -187,8 +187,9 @@ nothing, the settle at the promised angle ends in one small
 head-shake — *huh, could have sworn* — so a satisfied look and a
 puzzled one read differently. Then reseed and rest as usual. The full look stays deferred
 and jittered (every "soon" is `WATCH_SOON_S` ± half); transitions
-print with mood and volts; `ws` column (1 rest, 2 look, 3 reorient)
-in the recorder.
+print with mood and volts; `ws` column (1 rest, 2 look, 3 reorient,
+then the coax: 4 dwell, 5 nerve, 6 turn, 7 hop, 8 observe) in the
+recorder.
 
 **The rhythm**: deep sleep from power-on until the first wake — the
 gesture is half the fun — then f1 lives an asymmetric sleep/wake
@@ -226,11 +227,43 @@ by himself" on the console, and each toggle prints its drawn span.
 Power-cycling returns him to deep sleep — the honest meaning of a
 power cycle.
 
-**Next layer — responding**: the hello is the down-payment on this.
-Still to come: double-check (persistence against the background),
-then with probability ∝ blob size × dwell (gestures.log) a tentative
-step or two toward the visitor, each ending in rest and
-re-observation.
+**The coax** (implemented; every knob a `COAX_*` define citing the
+logs): when a look ends facing warmth, f1 may come partway to meet
+it — carefully, after checking his facts, never all the way. The
+doctrine is the watcher's own: sense only at rest, move blind and
+short, end in stillness — the approach is discrete *hops*, not
+tracking (tried, rejected). Detection during the coax is a blob
+against the **frame mean**, not the per-pixel background, which needs
+10 s of stillness a hopping f1 never has — clean division of labour:
+background = the sensitive rest-state glimpse eye, frame-mean blob =
+the robust close-range coax eye (a standing person at 2 m clears the
+median by +2.0–2.4 °C).
+
+The chain: the settle becomes a **dwell** — 5 s facing the warmth, the
+measured line that separates visit from transit with no overlap. The
+blob must sustain ≥60% presence (real coaxing ran 76–80%), and its
+centroid must *move* (liveliness EMA ≥0.02: people 0.03–0.07, a hot
+window 0.007) — warm furniture gets watched, not met, which also spares
+the skeleton trick from a robot in its lap. Then, per hop, dice:
+p ∝ presence × blob size (the measured response law), damped by
+tiredness, capped at 0.85 — never a certainty, like the hello. A failed
+roll is **visible**: a little lean forward, a frozen beat, back down —
+working up the nerve, and each false start raises the next roll's odds
+(+0.25), so hesitation genuinely builds toward going. Two false starts
+without a pass and he couldn't work up the nerve. A pass earns a
+gyro-metered turn to the blob's centroid (boresight 3.2, the
+field-tested mirrored sign) and one gentle hop — 600 ms at 30%,
+shrinking as the blob grows so he creeps as he nears — then stillness
+and a 2 s re-observation. Outcomes, each with its own read: blob at
+**14 px** (1 m from a crouching child — never fill the frame) = arrived:
+the found-you shimmy, the day's biggest bedtime nudge, and the visitor
+becomes wallpaper at the reseed so waving can't yo-yo him. Blob
+**shrunk** ≥2 px = backing away: he won't chase — a robot that stops
+when you retreat is shy, one that follows is a horror film. Blob
+**gone** = the huh head-shake. **Three hops** spent = "your turn": he
+came partway, they meet him in the middle. Blob over **half the
+frame** at any observation = someone's on top of him: freeze and rest.
+Held and the tilt witness abort everything, as ever.
 
 ## Data recorder
 

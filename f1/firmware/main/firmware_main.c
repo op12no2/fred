@@ -648,7 +648,50 @@ static void held_check(const float dps[3], const float g[3])
                                        stretches it (x3 fully tired) */
 #define WATCH_DOZE_FRAC     0.2f
 
-typedef enum { WATCH_OFF = 0, WATCH_REST, WATCH_LOOK, WATCH_ORIENT } watch_state_t;
+/* The coax: when a look ends facing something warm, f1 may come partway
+ * to meet it — carefully, after checking his facts, and never all the
+ * way. Every threshold below is a measured number (gestures.log,
+ * quiet_room_sat.log); the doctrine is the watcher's: sense only at
+ * rest, move blind and short, end in stillness. */
+#define COAX_BLOB_C      2.0f  /* px over frame mean = part of the visitor:
+                                  a standing person at 2 m clears the frame
+                                  median by +2.0-2.4 C (gestures.log) */
+#define COAX_MIN_PX      2     /* minimum blob weight — one noise pixel
+                                  (±2.5 C) can't be a visitor */
+#define COAX_DWELL_S     5     /* dwell >= ~5 s separates visit from
+                                  transit with no overlap (gestures.log) */
+#define COAX_PRESENCE    0.6f  /* real coaxing sustained 76-80% presence */
+#define COAX_LIVELY      0.02f /* centroid-motion EMA: people 0.03-0.07, a
+                                  hot window 0.007 — movement, not
+                                  temperature, tells people from furniture */
+#define COAX_CEIL_PX     14    /* close enough: 1 m from a crouching child
+                                  fills 14 px (gestures.log). Never fill
+                                  the frame — full-frame = possible bump */
+#define COAX_FULL_PX     32    /* half the frame = someone on top: freeze */
+#define COAX_RETREAT_PX  2.0f  /* the blob shrank = backing away (retreat
+                                  is a clean monotonic ramp) — a shy
+                                  creature does not chase */
+#define COAX_HOPS_MAX    3     /* he comes partway; they meet him in the
+                                  middle */
+#define COAX_HOP_PCT     30
+#define COAX_HOP_MS      600   /* one tentative hop, shrinking as the blob
+                                  grows so he creeps as he nears */
+#define COAX_HOP_MIN_MS  250
+#define COAX_TURN_PCT    20
+#define COAX_TURN_MIN_DEG 6.0f /* under a pixel column — not worth turning */
+#define COAX_TURN_TIMEOUT_S 5
+#define COAX_OBS_SETTLE_MS 500 /* let the stop settle before re-observing */
+#define COAX_OBS_S       2     /* the re-observation window after a hop */
+#define COAX_NERVE_MAX   3     /* rolls per hop: up to two visible false
+                                  starts, then he either goes or gives up */
+#define COAX_NERVE_GAP_MS 1500
+#define COAX_NERVE_BOOST 0.25f /* each failed roll adds this — the nerve
+                                  visibly builds */
+#define COAX_P_MAX       0.85f /* never a certainty, like the hello */
+
+typedef enum { WATCH_OFF = 0, WATCH_REST, WATCH_LOOK, WATCH_ORIENT,
+               WATCH_DWELL, WATCH_NERVE, WATCH_CTURN, WATCH_HOP,
+               WATCH_OBS } watch_state_t;
 
 static watch_state_t watch_state;
 static float watch_bg[64];
@@ -677,6 +720,21 @@ static bool watch_duty;            /* the rhythm: armed by the first wake,
                                       deep sleep from power-on until then */
 static int watch_glimpse_sign;       /* drive sign toward the last glimpse */
 static float watch_glimpse_deg;      /* its degrees off boresight */
+
+static int64_t coax_until;         /* current coax phase deadline */
+static int64_t coax_obs_from;      /* observation windows discard frames
+                                      before this (post-hop settle) */
+static int coax_ticks, coax_seen;  /* window frames, and frames with a blob */
+static float coax_px_sum;          /* blob weight summed over the window */
+static float coax_col;             /* last-seen blob centroid column */
+static float coax_lively;          /* centroid-motion EMA over the window */
+static float coax_prev_col, coax_prev_row;
+static bool coax_prev_seen;
+static bool coax_full;             /* the blob hit COAX_FULL_PX: freeze */
+static float coax_prev_px;         /* blob weight before the last hop */
+static int coax_hops, coax_nerve;
+static float coax_p;               /* this hop's base odds */
+static float coax_turn_deg;
 
 /* The resting green, graded by arousal: a dim ember while the watcher
  * sleeps, full green awake — and the discrete orange wake LED agrees,
@@ -1003,6 +1061,141 @@ static void watch_settle(int64_t now)
            rest, watch_mood(), watch_vrest);
 }
 
+/* The coaxing eye: a blob against the frame mean, not the per-pixel
+ * background — the background needs 10 s of stillness the coax never
+ * has, and at coaxing range a person clears the frame mean standing
+ * (gestures.log). Clean division of labour: per-pixel background = the
+ * sensitive rest-state glimpse detector, frame-mean blob = the robust
+ * close-range coax eye. Returns the blob weight in pixels; centroid in
+ * image coordinates when there is one. */
+static int coax_blob(const float t[64], float mean, float *col, float *row)
+{
+    int n = 0;
+    float csum = 0, rsum = 0;
+    for (int i = 0; i < 64; i++) {
+        if (t[i] - mean >= COAX_BLOB_C) {
+            n++;
+            csum += i % 8;
+            rsum += i / 8;
+        }
+    }
+    if (n < COAX_MIN_PX) {
+        return 0;
+    }
+    *col = csum / n;
+    *row = rsum / n;
+    return n;
+}
+
+/* Open a fresh observation window: frames before the settle are
+ * discarded, then presence, size and liveliness accumulate. */
+static void coax_window(int64_t now, int settle_ms, int span_s)
+{
+    coax_obs_from = now + settle_ms * 1000LL;
+    coax_until = coax_obs_from + span_s * 1000000LL;
+    coax_ticks = coax_seen = 0;
+    coax_px_sum = 0;
+    coax_lively = 0;
+    coax_prev_seen = false;
+    coax_full = false;
+}
+
+/* One frame of blob accounting, shared by the dwell and the
+ * re-observation after each hop. */
+static void coax_accumulate(const float t[64], float mean, int64_t now)
+{
+    if (now < coax_obs_from) {
+        return;
+    }
+    float col, row;
+    int n = coax_blob(t, mean, &col, &row);
+    coax_ticks++;
+    if (n > 0) {
+        coax_seen++;
+        coax_px_sum += n;
+        if (n >= COAX_FULL_PX) {
+            coax_full = true;
+        }
+        if (coax_prev_seen) {
+            float move = fabsf(col - coax_prev_col) +
+                         fabsf(row - coax_prev_row);
+            coax_lively += 0.2f * (move - coax_lively);
+        }
+        coax_prev_col = col;
+        coax_prev_row = row;
+        coax_col = col;
+        coax_prev_seen = true;
+    } else {
+        coax_prev_seen = false;
+    }
+}
+
+/* Working up the nerve, visibly: a little lean forward, a frozen beat,
+ * and back down. The roll failed, and everyone watching knows exactly
+ * what almost happened — which is the point: it reads as shyness and
+ * invites more coaxing. */
+static void coax_false_start(void)
+{
+    rgb_set(RGB_BLUE);
+    drive(35, 35);
+    vTaskDelay(pdMS_TO_TICKS(150));
+    drive(0, 0);
+    vTaskDelay(pdMS_TO_TICKS(400));
+    drive(-35, -35);
+    vTaskDelay(pdMS_TO_TICKS(150));
+    drive(0, 0);
+    led_nominal();
+}
+
+/* Set up the dice for the next hop. Odds ∝ presence × blob size
+ * (gestures.log: response probability ∝ blob size × dwell falls
+ * straight out), damped by tiredness, capped short of certainty — a
+ * child coaxing harder genuinely raises them, but he's never a
+ * machine that always comes. */
+static void coax_consider(int64_t now, float presence, float px)
+{
+    coax_prev_px = px;
+    coax_p = presence * (px / COAX_CEIL_PX) * (1.0f - 0.5f * watch_mood());
+    if (coax_p > COAX_P_MAX) {
+        coax_p = COAX_P_MAX;
+    }
+    coax_nerve = 0;
+    coax_until = now + COAX_NERVE_GAP_MS * 1000LL;
+    watch_state = WATCH_NERVE;
+}
+
+/* The hop: short, blind, gentle, shrinking as the blob grows so he
+ * creeps as he nears. The tilt witness covers edges and climbs, as it
+ * does for every move. */
+static void coax_hop_start(int64_t now)
+{
+    int ms = (int)(COAX_HOP_MS * (1.0f - coax_prev_px / COAX_CEIL_PX));
+    if (ms < COAX_HOP_MIN_MS) {
+        ms = COAX_HOP_MIN_MS;
+    }
+    rgb_set(RGB_BLUE);
+    drive(COAX_HOP_PCT, COAX_HOP_PCT);
+    coax_until = now + ms * 1000LL;
+    watch_state = WATCH_HOP;
+    printf("watch: a step closer (%d ms)\n", ms);
+}
+
+/* The look is over: if it ended facing warmth, check the facts before
+ * anything else — sit still and watch. Otherwise rest as ever. */
+static void watch_look_done(int64_t now)
+{
+    if (watch_best_drag > 0 && !watch_huh) {
+        drive(0, 0);
+        led_nominal();
+        coax_hops = 0;
+        coax_window(now, 0, COAX_DWELL_S);
+        watch_state = WATCH_DWELL;
+        printf("watch: something there — checking\n");
+        return;
+    }
+    watch_settle(now);
+}
+
 static void watch_step(const int16_t px[64], const float dps[3],
                        float volts, bool volts_ok)
 {
@@ -1192,14 +1385,134 @@ static void watch_step(const int16_t px[64], const float dps[3],
                     break;
                 }
             }
-            watch_settle(now);
+            watch_look_done(now);
         }
         break;
     }
     case WATCH_ORIENT: {
         watch_yaw += dps[2] * (1.0f / TICK_HZ);
         if (fabsf(watch_yaw) >= watch_reorient_deg || now > watch_look_until) {
+            watch_look_done(now);
+        }
+        break;
+    }
+    case WATCH_DWELL: {
+        /* the double-check is dwell, the cleanest measured fact: sit
+         * facing the warmth for 5 s and it must persist — a walk-past
+         * spikes hard but never survives this */
+        coax_accumulate(t, mean, now);
+        if (coax_full) {
+            printf("watch: right on top of me — staying put\n");
             watch_settle(now);
+            break;
+        }
+        if (now < coax_until) {
+            break;
+        }
+        float presence = coax_ticks > 0 ? (float)coax_seen / coax_ticks : 0;
+        float blob = coax_seen > 0 ? coax_px_sum / coax_seen : 0;
+        if (presence < COAX_PRESENCE) {
+            watch_huh = true;   /* promised, gone: the head-shake */
+            watch_settle(now);
+        } else if (blob >= COAX_CEIL_PX) {
+            printf("watch: already close enough\n");
+            watch_settle(now);
+        } else if (coax_lively < COAX_LIVELY) {
+            /* the hot window ran hotter than the person; only movement
+             * tells them apart — warm furniture gets watched, not met */
+            printf("watch: warm, but nobody home — not going over\n");
+            watch_settle(now);
+        } else {
+            printf("watch: a visitor (%.0f px, %.0f%% there) — "
+                   "thinking about it\n", blob, presence * 100);
+            coax_consider(now, presence, blob);
+        }
+        break;
+    }
+    case WATCH_NERVE: {
+        if (now < coax_until) {
+            break;
+        }
+        float p = coax_p + coax_nerve * COAX_NERVE_BOOST;
+        if (p > COAX_P_MAX) {
+            p = COAX_P_MAX;
+        }
+        if (watch_frand() >= p) {
+            if (++coax_nerve >= COAX_NERVE_MAX) {
+                printf("watch: couldn't work up the nerve\n");
+                watch_settle(now);
+            } else {
+                coax_false_start();
+                printf("watch: almost went\n");
+                coax_until = now + COAX_NERVE_GAP_MS * 1000LL;
+            }
+            break;
+        }
+        /* going — face the blob first if it's off by a column or more;
+         * drive sign toward an image offset is the field-tested mirror
+         * from the glimpse */
+        float off = coax_col - WATCH_CENTER_COL;
+        coax_turn_deg = fabsf(off) * WATCH_COL_DEG;
+        if (coax_turn_deg >= COAX_TURN_MIN_DEG) {
+            int d = off > 0 ? -1 : 1;
+            watch_yaw = 0;
+            coax_until = now + COAX_TURN_TIMEOUT_S * 1000000LL;
+            rgb_set(RGB_BLUE);
+            drive(d * COAX_TURN_PCT, -d * COAX_TURN_PCT);
+            watch_state = WATCH_CTURN;
+        } else {
+            coax_hop_start(now);
+        }
+        break;
+    }
+    case WATCH_CTURN: {
+        watch_yaw += dps[2] * (1.0f / TICK_HZ);
+        if (fabsf(watch_yaw) >= coax_turn_deg || now > coax_until) {
+            coax_hop_start(now);
+        }
+        break;
+    }
+    case WATCH_HOP: {
+        if (now >= coax_until) {
+            drive(0, 0);
+            led_nominal();
+            coax_window(now, COAX_OBS_SETTLE_MS, COAX_OBS_S);
+            watch_state = WATCH_OBS;
+        }
+        break;
+    }
+    case WATCH_OBS: {
+        coax_accumulate(t, mean, now);
+        if (coax_full) {
+            printf("watch: right on top of me — staying put\n");
+            watch_settle(now);
+            break;
+        }
+        if (now < coax_until) {
+            break;
+        }
+        float presence = coax_ticks > 0 ? (float)coax_seen / coax_ticks : 0;
+        float blob = coax_seen > 0 ? coax_px_sum / coax_seen : 0;
+        coax_hops++;
+        if (presence < COAX_PRESENCE) {
+            watch_huh = true;   /* was there, gone: the head-shake */
+            watch_settle(now);
+        } else if (blob >= COAX_CEIL_PX) {
+            /* arrived — a polite metre away, and the visitor becomes
+             * wallpaper at the settle's reseed, so waving can't yo-yo him */
+            printf("watch: hi\n");
+            perform_found();
+            watch_bedtime_nudge(true);   /* a visit that came off: the
+                                            day's best event */
+            watch_settle(now);
+        } else if (blob < coax_prev_px - COAX_RETREAT_PX) {
+            printf("watch: backing away — won't chase\n");
+            watch_settle(now);
+        } else if (coax_hops >= COAX_HOPS_MAX) {
+            printf("watch: came this far — your turn\n");
+            watch_settle(now);
+        } else {
+            coax_consider(now, presence, blob);
         }
         break;
     }
@@ -1224,7 +1537,9 @@ typedef struct {
     float volts, ma;
     uint8_t held;               /* 1 while he's in someone's hands */
     uint8_t ws;                 /* watcher state: 0 off, 1 rest, 2 look,
-                                   3 reorient (the settle turn) */
+                                   3 reorient (the settle turn), then the
+                                   coax: 4 dwell, 5 nerve, 6 turn, 7 hop,
+                                   8 observe */
 } rec_t;
 
 static rec_t *rec_buf;
