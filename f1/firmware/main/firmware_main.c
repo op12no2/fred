@@ -394,6 +394,19 @@ static void perform_hello(void)
     led_nominal();
 }
 
+/* "I'm awake": a tiny stretch — lean forward, settle back. */
+static void perform_awake(void)
+{
+    rgb_set(RGB_BLUE);
+    drive(35, 35);   /* above the ~30% standstill deadband */
+    vTaskDelay(pdMS_TO_TICKS(150));
+    rgb_set(RGB_GREEN);
+    drive(-35, -35);
+    vTaskDelay(pdMS_TO_TICKS(150));
+    drive(0, 0);
+    led_nominal();
+}
+
 /* "Found you!": a quick excited shimmy, used when the hunt spots heat. */
 static void perform_found(void)
 {
@@ -1095,7 +1108,7 @@ static void print_help(void)
            "  c [secs]           motor calibration script, after an optional\n"
            "                     delay to get him on the floor (r first)\n"
            "  p <which>          perform: a = I'm-alive, h = hello,\n"
-           "                     f = found-you\n"
+           "                     f = found-you, w = I'm-awake\n"
            "  l <r> <g> <b>      set the RGB LED, 0..255 (l 32 0 0)\n"
            "  r                  record all sensors at 10 Hz, start/stop\n"
            "  d                  dump the recording as CSV\n"
@@ -1148,6 +1161,9 @@ static void handle_line(char *line)
             printf("performance: done\n");
         } else if (pc == 'f') {
             perform_found();
+            printf("performance: done\n");
+        } else if (pc == 'w') {
+            perform_awake();
             printf("performance: done\n");
         } else {
             printf("no such performance: %c\n", pc);

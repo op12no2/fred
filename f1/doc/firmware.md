@@ -27,7 +27,9 @@ stillness. The gyro's real gift is knowing when he's been picked up.
   driver is awake only while a wheel is turning.
 - **Performances** — `p a` I'm-alive wiggle, `p h` hello (the glimpse
   greeting: one gentle two-syllable swing, "hi-ya"), `p f` found-you
-  shimmy; one function per performance, repertoire grows.
+  shimmy, `p w` I'm-awake (a tiny stretch: lean forward, settle back —
+  not yet wired to waking, tune it first); one function per
+  performance, repertoire grows.
 - **RGB status** — red boot/fail, green well, blue performing, violet
   while held. Nominal green is arousal-graded via `led_nominal()`: a
   dim ember while the watcher sleeps, full green awake — George read
