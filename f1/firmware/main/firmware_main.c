@@ -489,12 +489,21 @@ static void motors_init(void)
 #define GEST_LIFT_MAX_S 4     /* each lift-down this brief (incl. quiet 1 s) */
 #define GEST_GAP_MAX_S  3     /* and the next lift this soon after set-down */
 
+/* The sprint's arming gesture rides on held: fully inverted for a
+ * second, then set down. Nobody flips a robot by accident — the
+ * safest trigger the IMU can offer for the fastest thing he does. */
+#define FLIP_AZ       -0.8f   /* upside down, unmistakably */
+#define FLIP_TICKS    10      /* a full second of it */
+
 static bool held;
 static int held_ticks;
 static int64_t held_quiet_since;
 static int64_t held_since, gest_setdown_at;
 static int gest_count;
 static volatile bool gest_toggle;   /* double lift-down seen: flip the watcher */
+static int flip_ticks;
+static bool sprint_armed;
+static volatile bool sprint_go;     /* flip-armed set-down seen: sprint */
 
 static void held_check(const float dps[3], const float g[3])
 {
@@ -513,11 +522,22 @@ static void held_check(const float dps[3], const float g[3])
                 gest_count = 0;   /* too slow, the ritual starts over */
             }
             held_since = now;
+            flip_ticks = 0;
+            sprint_armed = false;   /* each hold is a fresh ritual */
             drive(0, 0);   /* wheels stop, and the driver sleeps, in hands */
             rgb_set(RGB_HELD);   /* violet: airborne */
             printf("picked up!\n");
         }
-    } else if (gmag < HELD_QUIET_DPS) {
+    } else if (g[2] < FLIP_AZ) {
+        if (++flip_ticks >= FLIP_TICKS && !sprint_armed) {
+            sprint_armed = true;
+            rgb_set(RGB_BLUE);   /* blue in hand: armed */
+            printf("sprint: armed — set down to run\n");
+        }
+        held_quiet_since = 0;   /* inverted stillness is not a set-down */
+    } else if (gmag < HELD_QUIET_DPS && g[2] > HELD_DRIVE_AZ) {
+        /* quiet and upright — only that means back on his wheels */
+        flip_ticks = 0;   /* the arming second must be contiguous */
         if (held_quiet_since == 0) {
             held_quiet_since = now;
         } else if (now - held_quiet_since > HELD_OFF_MS * 1000) {
@@ -525,7 +545,11 @@ static void held_check(const float dps[3], const float g[3])
             held_ticks = 0;
             led_nominal();
             printf("set down\n");
-            if (now - held_since < GEST_LIFT_MAX_S * 1000000LL) {
+            if (sprint_armed) {
+                sprint_armed = false;
+                gest_count = 0;        /* the flip spends this lift-down */
+                sprint_go = true;
+            } else if (now - held_since < GEST_LIFT_MAX_S * 1000000LL) {
                 if (++gest_count >= 2) {
                     gest_count = 0;
                     gest_toggle = true;
@@ -537,6 +561,7 @@ static void held_check(const float dps[3], const float g[3])
         }
     } else {
         held_quiet_since = 0;
+        flip_ticks = 0;
     }
 }
 
@@ -645,6 +670,143 @@ static void led_nominal(void)
         rgb_set(RGB_GREEN_DIM);
     } else {
         rgb_set(RGB_GREEN);
+    }
+}
+
+/* The sprint — "how fast can he go?", George's question answered with
+ * theatre. Five countdown winks to aim him and stand clear (the fuse
+ * idiom, here with a safety poll under it), a full-duty second out, a
+ * fast gyro-metered about-face, and a second home, easing off the
+ * throttle over each leg's tail so he pulls up rather than skids.
+ * Armed by `p s` or the flip gesture. Floor doctrine like the c runs:
+ * the fuse cannot know he's on a table. Aborts on handling, tilt, or
+ * unexpected rotation (which a full-speed wall hit becomes). Prints
+ * its own telemetry — peak spin rate, and the launch's minimum volts:
+ * full duty from rest is the hardest yank the pack ever gets, so the
+ * sprint doubles as the pack's stress test (suspect it in any reset
+ * near 5.2 V). */
+#define SPRINT_FUSE_S    5
+#define SPRINT_RUN_PCT   100
+#define SPRINT_RUN_MS    1000
+#define SPRINT_DECEL_MS  300     /* throttle ramps out over the leg's tail */
+#define SPRINT_BACK_MS   1000    /* tune so the return ends near the start */
+#define SPRINT_SPIN_PCT  60      /* dramatic, but under the gyro's ±500 dps —
+                                    a saturated meter over-rotates the 180 */
+#define SPRINT_TURN_DEG  180.0f
+#define SPRINT_SPIN_TIMEOUT_MS 3000
+#define SPRINT_GUARD_DPS 60.0f   /* yaw he never shows driving straight */
+
+static float sprint_vmin;
+
+/* One safety poll: handling, tilt, unexpected yaw (0 = spinning on
+ * purpose, don't judge), and the running pack-volts minimum. */
+static bool sprint_safe(float max_dps, float *gz)
+{
+    float dps[3], g[3], v, ma;
+    if (held) {
+        return false;
+    }
+    if (lsm_read(dps, g) != ESP_OK) {
+        return false;
+    }
+    if (g[2] < HELD_DRIVE_AZ) {
+        return false;   /* lifted, climbing, or falling */
+    }
+    if (max_dps > 0 && fabsf(dps[2]) > max_dps) {
+        return false;   /* someone or something is turning him */
+    }
+    if (gz) {
+        *gz = dps[2];
+    }
+    if (ina_ok && ina_read(&v, &ma) == ESP_OK && v > 3.0f && v < sprint_vmin) {
+        sprint_vmin = v;
+    }
+    return true;
+}
+
+static bool sprint_leg(int ms)
+{
+    int64_t t0 = esp_timer_get_time();
+    int el;
+    while ((el = (int)((esp_timer_get_time() - t0) / 1000)) < ms) {
+        int pct = SPRINT_RUN_PCT;
+        if (ms - el < SPRINT_DECEL_MS) {
+            pct = SPRINT_RUN_PCT * (ms - el) / SPRINT_DECEL_MS;
+        }
+        drive(pct, pct);
+        if (!sprint_safe(SPRINT_GUARD_DPS, NULL)) {
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    return true;
+}
+
+static bool sprint_spin(float *peak)
+{
+    float yaw = 0, gz;
+    int64_t t0 = esp_timer_get_time(), last = t0;
+    drive(SPRINT_SPIN_PCT, -SPRINT_SPIN_PCT);
+    while (fabsf(yaw) < SPRINT_TURN_DEG) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+        if (!sprint_safe(0, &gz)) {
+            return false;
+        }
+        int64_t now = esp_timer_get_time();
+        yaw += gz * (float)(now - last) / 1000000.0f;
+        last = now;
+        if (fabsf(gz) > *peak) {
+            *peak = fabsf(gz);
+        }
+        if (now - t0 > SPRINT_SPIN_TIMEOUT_MS * 1000LL) {
+            break;   /* gyro trouble: don't pirouette forever */
+        }
+    }
+    return true;
+}
+
+static void perform_sprint(void)
+{
+    if (!lsm_ok) {
+        printf("no IMU, no sprint\n");
+        return;
+    }
+    if (watch_state == WATCH_REST) {
+        /* no look mid-sprint */
+        int64_t busy = esp_timer_get_time() + 15 * 1000000LL;
+        if (watch_deadline < busy) {
+            watch_deadline = busy;
+        }
+    }
+    sprint_vmin = 99.0f;
+    bool ok = true;
+    for (int i = 0; ok && i < SPRINT_FUSE_S; i++) {
+        rgb_set(RGB_BLUE);
+        for (int j = 0; ok && j < 20; j++) {
+            ok = sprint_safe(HELD_DPS, NULL);
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        rgb_set(RGB_BLACK);
+        for (int j = 0; ok && j < 80; j++) {
+            ok = sprint_safe(HELD_DPS, NULL);
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+    }
+    rgb_set(RGB_BLUE);
+    float peak = 0;
+    ok = ok && sprint_leg(SPRINT_RUN_MS);
+    ok = ok && sprint_spin(&peak);
+    ok = ok && sprint_leg(SPRINT_BACK_MS);
+    drive(0, 0);
+    watch_bg_seed = true;   /* wherever he ended up, the eye moved */
+    led_nominal();
+    if (!ok) {
+        printf("sprint: aborted\n");
+    } else if (sprint_vmin < 90.0f) {
+        printf("sprint: peak spin %.0f dps, pack dipped to %.2f V\n",
+               peak, sprint_vmin);
+    } else {
+        printf("sprint: peak spin %.0f dps\n", peak);
     }
 }
 
@@ -1003,6 +1165,10 @@ static void tick_task(void *arg)
             gest_toggle = false;
             watch_toggle();
         }
+        if (sprint_go) {
+            sprint_go = false;
+            perform_sprint();
+        }
         if (watch_duty && !held && esp_timer_get_time() >= watch_cycle_at) {
             printf(watch_state == WATCH_OFF ? "watch: waking by himself\n"
                                             : "watch: nodding off\n");
@@ -1128,7 +1294,9 @@ static void print_help(void)
            "  c [secs]           motor calibration script, after an optional\n"
            "                     delay to get him on the floor (r first)\n"
            "  p <which>          perform: a = I'm-alive, h = hello,\n"
-           "                     f = found-you, w = I'm-awake\n"
+           "                     f = found-you, w = I'm-awake,\n"
+           "                     s = sprint (5 s fuse — floor, stand clear;\n"
+           "                     or: hold upside down 1 s, set down)\n"
            "  l <r> <g> <b>      set the RGB LED, 0..255 (l 32 0 0)\n"
            "  r                  record all sensors at 10 Hz, start/stop\n"
            "  d                  dump the recording as CSV\n"
@@ -1185,6 +1353,8 @@ static void handle_line(char *line)
         } else if (pc == 'w') {
             perform_awake();
             printf("performance: done\n");
+        } else if (pc == 's') {
+            perform_sprint();
         } else {
             printf("no such performance: %c\n", pc);
         }

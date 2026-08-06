@@ -29,7 +29,22 @@ stillness. The gyro's real gift is knowing when he's been picked up.
   greeting: one gentle two-syllable swing, "hi-ya"), `p f` found-you
   shimmy, `p w` I'm-awake (a lazy stretch: lean forward, hold a beat,
   settle back — runs at every wake; it may nose an obstacle, and
-  that's fine); one function per performance, repertoire grows. All
+  that's fine), `p s` sprint — George's "how fast can he go?": a 5 s
+  countdown-wink fuse (with a safety poll under it: handling, tilt or
+  unexpected rotation aborts, before and during), a full-duty second
+  out, a fast gyro-metered 180 (60% duty — the ±500 dps gyro must not
+  saturate or the meter over-rotates), and a second home, easing off
+  over each leg's last 300 ms so he pulls up rather than skids. Also
+  armed untethered by the **flip gesture**: while held, fully upside
+  down for a contiguous second (blue in hand acknowledges), and the
+  next set-down lights the fuse — nobody flips a robot by accident,
+  and the flip spends its lift-down so it can't count toward the
+  watcher toggle. Floor doctrine like the `c` runs: the fuse cannot
+  know he's on a table. Afterwards he prints his own telemetry — peak
+  spin dps and minimum pack volts: full duty from rest is the pack's
+  hardest yank, so the sprint doubles as its stress test (suspect it
+  in any reset near 5.2 V). One function per performance, repertoire
+  grows. All
   performances hold blue for the whole act and settle to nominal on
   exit — no colour changes mid-act (push/pop can come later if one
   ever runs atop a colour worth keeping).
@@ -59,7 +74,11 @@ stillness. The gyro's real gift is knowing when he's been picked up.
   **two brief lift-downs in quick succession toggle the watcher**
   (each under ~4 s, next lift within ~3 s) — blue-blue winks
   acknowledge "watching", one amber wink "not" — so an untethered f1
-  needs no console to go on or off duty.
+  needs no console to go on or off duty. A second gesture rides
+  beside it: **fully inverted for a contiguous second, then set down,
+  arms the sprint** (see Performances). Set-down now requires quiet
+  *and upright* (az > 0.90) — inverted stillness is the arming hold,
+  not a set-down.
 - **Recorder** — `r`/`d`, 10 Hz all-sensor CSV (see below).
 - **Calibration** — `c [secs]`, scripted open-loop motor runs.
 
