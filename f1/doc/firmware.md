@@ -224,7 +224,11 @@ so a gesture-launched performance (the flip-armed sprint) blocks its
 own recording — sprint.log holds an 11 s hole where the sprint
 happened, then a burst of catch-up rows at 12 ms spacing. To record
 a sprint, trigger it from the console (`p s`): that runs in the
-console task and the tick keeps ticking.
+console task and the tick keeps ticking. Untethered recipe (`p`
+takes an optional delay like `c`, for exactly this): pack ON before
+anything, `r`, `p s 20`, unplug USB — the pack keeps him up — carry
+him down, stand clear; afterwards reattach with monitor.sh
+(--no-reset), `r`, `d`.
 
 Two more wrinkles in retrieving a run, both monitor-side. PSRAM is wiped by
 reset, and `idf.py monitor` resets the chip on connect — always attach

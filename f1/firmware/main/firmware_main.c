@@ -1303,8 +1303,9 @@ static void print_help(void)
            "  w                  watcher on/off (or: double lift-down gesture)\n"
            "  c [secs]           motor calibration script, after an optional\n"
            "                     delay to get him on the floor (r first)\n"
-           "  p <which>          perform: a = I'm-alive, h = hello,\n"
-           "                     f = found-you, w = I'm-awake,\n"
+           "  p <which> [secs]   perform, after an optional delay to get\n"
+           "                     him on the floor: a = I'm-alive,\n"
+           "                     h = hello, f = found-you, w = I'm-awake,\n"
            "                     s = sprint (5 s fuse — floor, stand clear;\n"
            "                     or: hold upside down 1 s, set down)\n"
            "  l <r> <g> <b>      set the RGB LED, 0..255 (l 32 0 0)\n"
@@ -1351,6 +1352,12 @@ static void handle_line(char *line)
             printf("motion sensor read failed\n");
         }
     } else if (sscanf(line, "p %c", &pc) == 1) {
+        int delay = 0;
+        sscanf(line, "p %*c %d", &delay);
+        if (delay > 0) {
+            /* like c [secs]: time to unplug and get him on the floor */
+            countdown_winks(delay);
+        }
         if (pc == 'a') {
             perform_alive();
             printf("performance: done\n");
