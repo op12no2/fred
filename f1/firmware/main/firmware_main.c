@@ -504,6 +504,8 @@ static volatile bool gest_toggle;   /* double lift-down seen: flip the watcher *
 static int flip_ticks;
 static bool sprint_armed;
 static volatile bool sprint_go;     /* flip-armed set-down seen: sprint */
+static volatile bool knock_felt;    /* a rejected knock: too brief to be
+                                       hands, but he felt it */
 
 static void held_check(const float dps[3], const float g[3])
 {
@@ -514,6 +516,9 @@ static void held_check(const float dps[3], const float g[3])
          * tilt is the witness instead. */
         bool idle = cmd_left == 0 && cmd_right == 0;
         bool in_hands = idle ? gmag > HELD_DPS : g[2] < HELD_DRIVE_AZ;
+        if (idle && !in_hands && held_ticks > 0) {
+            knock_felt = true;   /* spiked but didn't become a hold */
+        }
         held_ticks = in_hands ? held_ticks + 1 : 0;
         if (held_ticks >= HELD_ON_TICKS) {
             held = true;
@@ -915,6 +920,7 @@ static void watch_toggle(void)
         watch_prev_held = false;
         watch_glimpse_pending = false;
         watch_hello_done = false;
+        knock_felt = false;   /* pokes from before the wake don't count */
         watch_deadline = esp_timer_get_time() + watch_soon_us();
         watch_duty = true;   /* the rhythm starts with the first wake */
         float span = watch_lognormal_s(WATCH_AWAKE_MED_S / watch_tired(),
@@ -982,6 +988,26 @@ static void watch_step(const int16_t px[64], const float dps[3],
 
     switch (watch_state) {
     case WATCH_REST: {
+        if (knock_felt) {
+            /* The flinch: a knock the pickup detector rejected still
+             * deserves a startle — recoil, a beat of amber, and a look
+             * soon ("what was that?"). Being poked keeps you awake. */
+            knock_felt = false;
+            rgb_set(RGB_GLIMPSE);
+            drive(-30, -30);
+            vTaskDelay(pdMS_TO_TICKS(120));
+            drive(0, 0);
+            vTaskDelay(pdMS_TO_TICKS(WATCH_GLIMPSE_BEAT_MS));
+            led_nominal();
+            watch_bg_seed = true;   /* the recoil moved the eye */
+            printf("watch: flinch — felt that, looking soon\n");
+            watch_bedtime_nudge(true);
+            int64_t soon = watch_soon_us();
+            if (watch_deadline > now + soon) {
+                watch_deadline = now + soon;
+            }
+            break;
+        }
         if (watch_bg_seed) {
             memcpy(watch_bg, t, sizeof(watch_bg));
             watch_bg_ok_at = now + WATCH_BG_SETTLE_S * 1000000LL;

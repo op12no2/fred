@@ -165,7 +165,11 @@ two-syllable swing — the coaxing precursor), after which the
 background reseeds (the wiggle moved the eye a little) and the
 visitor waits as wallpaper for the look. Later glimpses in the same
 rest get the amber beat only, still updating the remembered angle
-and pulling the look closer: noticed, said nothing. And sometimes
+and pulling the look closer: noticed, said nothing. Knocks the pickup
+detector rejects (spiked, but too brief to be hands — 17 of them in
+the validation log) now earn a **flinch**: a small recoil, a beat of
+amber, a look soon, and a dip of the second-wind pot — being poked
+keeps you awake. And sometimes
 the hello is **withheld anyway** — 15% fresh, rising to 60% on a
 flat pack — and the shrug spends the rest's hello, so greeting is
 never a certainty and tiredness reads as standoffishness. The look now **ends facing the best thing it
