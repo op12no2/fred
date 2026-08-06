@@ -122,6 +122,19 @@ Console: `m s t v g c p l r d ?`.
   ≥ ~5 s separates transit from visit** with no overlap. Approach and
   retreat are clean monotonic blob-size ramps. Response probability ∝
   blob size × dwell falls straight out.
+- **The sprint, measured** (sprint.log, untethered console launch):
+  the full-duty launch pulls **1.16 A peak and sags the pack 5.36 →
+  4.69 V** — through the ~5.2 V zone the mystery bench resets haunt —
+  and survives (the shelf cap earning its keep); a tired pack will
+  dip deeper, so a sprint brownout on flat cells is expected, not
+  alarming (he'd stop, reboot, and wake up asleep). Full-duty
+  vibration is worse than cruise ever showed: **p99 0.41 g** (vs 0.24
+  measured at gentler speeds), with az excursions to **0.66** — 30%
+  of driving samples sit below the 0.90 tilt line, which is why the
+  moving guards debounce ~120 ms instead of judging single samples.
+  The 60% spin turns 180° in ~1.5 s peaking around **134–184 dps** —
+  under half the gyro's ±500 dps ceiling, so there's headroom to
+  raise `SPRINT_SPIN_PCT` for drama without saturating the meter.
 - **The stationary room** (quiet_room_sat.log, 4 humanless minutes):
   per-pixel noise ~0.3 °C; frame median steady to ±0.2 °C; the worst
   any pixel strayed above its own long mean was 1.45 °C, so **a
