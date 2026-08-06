@@ -27,9 +27,12 @@ stillness. The gyro's real gift is knowing when he's been picked up.
   driver is awake only while a wheel is turning.
 - **Performances** — `p a` I'm-alive wiggle, `p h` hello (the glimpse
   greeting: one gentle two-syllable swing, "hi-ya"), `p f` found-you
-  shimmy, `p w` I'm-awake (a tiny stretch: lean forward, settle back —
-  not yet wired to waking, tune it first); one function per
-  performance, repertoire grows.
+  shimmy, `p w` I'm-awake (a lazy stretch: lean forward, hold a beat,
+  settle back — runs at every wake; it may nose an obstacle, and
+  that's fine); one function per performance, repertoire grows. All
+  performances hold blue for the whole act and settle to nominal on
+  exit — no colour changes mid-act (push/pop can come later if one
+  ever runs atop a colour worth keeping).
 - **RGB status** — red boot/fail, green well, blue performing, violet
   while held. Nominal green is arousal-graded via `led_nominal()`: a
   dim ember while the watcher sleeps, full green awake — George read
@@ -147,7 +150,8 @@ or autonomous alike: awake median 2 h fresh, **shrunk** ÷3 by
 tiredness; asleep median 1 h fresh, **stretched** ×3 (sigma 0.5,
 clamped 20 min–6 h and 15 min–4 h). So waking a sleeping f1 grants a
 full awake span and putting him to sleep earns a full sleep — the
-gesture genuinely matters, it never just pauses a timer. And the day's
+gesture genuinely matters, it never just pauses a timer. Every wake —
+manual or his own — opens with the I'm-awake stretch. And the day's
 content gets a vote on bedtime: each wake grants two finite pots, a
 **second wind** (45 min fresh, ÷3 tired) that interesting events — a
 glimpse at rest, a gaze the look confirmed — spend pushing sleep later,

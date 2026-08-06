@@ -362,16 +362,19 @@ static void drive(int left_pct, int right_pct)
 
 static void led_nominal(void);   /* the resting green, sleep/wake graded */
 
-/* "I'm alive and all is well": wiggle on the spot with blue winks on the
- * beats, then settle to green. One function per performance until there
- * are enough of them to be worth a dispatcher. */
+/* Performances hold blue for the whole act and settle to nominal on
+ * exit — one convention, no colour changes mid-act (if a performance
+ * ever runs atop a colour worth keeping, that's the day this becomes
+ * push/pop). One function per performance until there are enough of
+ * them to be worth a dispatcher. */
+
+/* "I'm alive and all is well": wiggle on the spot. */
 static void perform_alive(void)
 {
+    rgb_set(RGB_BLUE);
     for (int i = 0; i < 3; i++) {
-        rgb_set(RGB_BLUE);
         drive(60, -60);   /* above the ~30% standstill deadband */
         vTaskDelay(pdMS_TO_TICKS(100));
-        rgb_set(RGB_GREEN);
         drive(-60, 60);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -382,11 +385,10 @@ static void perform_alive(void)
 /* "Hello": the greeting when the watcher glimpses warmth. */
 static void perform_hello(void)
 {
+    rgb_set(RGB_BLUE);
     for (int i = 0; i < 1; i++) {
-        rgb_set(RGB_BLUE);
         drive(40, -40);   /* above the ~30% standstill deadband */
         vTaskDelay(pdMS_TO_TICKS(200));
-        rgb_set(RGB_GREEN);
         drive(-40, 40);
         vTaskDelay(pdMS_TO_TICKS(200));
     }
@@ -394,15 +396,17 @@ static void perform_hello(void)
     led_nominal();
 }
 
-/* "I'm awake": a tiny stretch — lean forward, settle back. */
+/* "I'm awake": a lazy stretch — lean forward, hold it, settle back.
+ * Runs at every wake; it may nose an obstacle, and that's fine. */
 static void perform_awake(void)
 {
     rgb_set(RGB_BLUE);
     drive(35, 35);   /* above the ~30% standstill deadband */
-    vTaskDelay(pdMS_TO_TICKS(150));
-    rgb_set(RGB_GREEN);
+    vTaskDelay(pdMS_TO_TICKS(500));
+    drive(0, 0);
+    vTaskDelay(pdMS_TO_TICKS(1000));
     drive(-35, -35);
-    vTaskDelay(pdMS_TO_TICKS(150));
+    vTaskDelay(pdMS_TO_TICKS(500));
     drive(0, 0);
     led_nominal();
 }
@@ -410,6 +414,7 @@ static void perform_awake(void)
 /* "Found you!": a quick excited shimmy, used when the hunt spots heat. */
 static void perform_found(void)
 {
+    rgb_set(RGB_BLUE);
     for (int i = 0; i < 2; i++) {
         drive(40, -40);
         vTaskDelay(pdMS_TO_TICKS(120));
@@ -417,6 +422,7 @@ static void perform_found(void)
         vTaskDelay(pdMS_TO_TICKS(120));
     }
     drive(0, 0);
+    led_nominal();
 }
 
 /* One blue wink per second — the fuse for delayed starts. */
@@ -740,9 +746,9 @@ static void watch_toggle(void)
         watch_wind_s = WATCH_WIND_MAX_S / watch_tired();
         watch_doze_s = WATCH_DOZE_MAX_S * watch_tired();
         watch_state = WATCH_REST;
-        led_nominal();   /* awake: full green */
         printf("watcher: on (awake ~%.0f min; w or double lift-down "
                "to stop)\n", span / 60.0f);
+        perform_awake();   /* the waking stretch; ends on full green */
     }
 }
 
