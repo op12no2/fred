@@ -687,9 +687,9 @@ static void led_nominal(void)
  * near 5.2 V). */
 #define SPRINT_FUSE_S    5
 #define SPRINT_RUN_PCT   100
-#define SPRINT_RUN_MS    1000
+#define SPRINT_RUN_MS    2300
 #define SPRINT_DECEL_MS  300     /* throttle ramps out over the leg's tail */
-#define SPRINT_BACK_MS   1000    /* tune so the return ends near the start */
+#define SPRINT_BACK_MS   2250    /* tune so the return ends near the start */
 #define SPRINT_SPIN_PCT  60      /* dramatic, but under the gyro's ±500 dps —
                                     a saturated meter over-rotates the 180 */
 #define SPRINT_TURN_DEG  180.0f
