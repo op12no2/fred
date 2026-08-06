@@ -1246,6 +1246,11 @@ static void rec_dump(void)
             printf(",%.2f", r->px[p] * 0.25f);
         }
         printf("\n");
+        if ((i & 63) == 63) {
+            /* let IDLE0 breathe: a starved task watchdog spews its
+             * backtraces mid-line into the CSV (sprint.log, 20260806) */
+            vTaskDelay(1);
+        }
     }
     printf("# %d records\n", rec_len);
 }
