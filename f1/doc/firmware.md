@@ -37,7 +37,10 @@ stillness. The gyro's real gift is knowing when he's been picked up.
   while held. Nominal green is arousal-graded via `led_nominal()`: a
   dim ember while the watcher sleeps, full green awake — George read
   the watch toggle as waking him, and now the LED agrees (he also
-  boots up asleep).
+  boots up asleep). A discrete orange wake LED (GPIO 11) says the same
+  thing in sunlight, where the ember can't: on awake, off asleep, dark
+  from boot until the first wake. Plain on/off for now; a breathing
+  fade is the parked evolution.
 - **Pickup detection** — while idle, sustained rotation (>20 dps,
   3 ticks) means he's in someone's hands (handling is a 150:1 signal);
   while driving, sustained tilt (az < 0.90, ~25°) is the witness

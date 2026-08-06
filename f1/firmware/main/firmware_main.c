@@ -72,6 +72,10 @@
 #define RGB_GLIMPSE     48, 24, 0
 #define RGB_HELD        48, 0, 48
 
+#define WAKE_LED_GPIO   11     /* discrete orange LED, 1 kOhm to GND, on the
+                                  shelf: on = awake, off = asleep — readable
+                                  in sunlight where the dim ember isn't */
+
 #define MOTOR_L_IN1_CH  LEDC_CHANNEL_0
 #define MOTOR_L_IN2_CH  LEDC_CHANNEL_1
 #define MOTOR_R_IN1_CH  LEDC_CHANNEL_2
@@ -258,6 +262,13 @@ static void rgb_init(void)
     };
     ESP_ERROR_CHECK(rmt_new_bytes_encoder(&enc_cfg, &rgb_enc));
     ESP_ERROR_CHECK(rmt_enable(rgb_chan));
+
+    gpio_config_t wake_cfg = {
+        .pin_bit_mask = 1ULL << WAKE_LED_GPIO,
+        .mode = GPIO_MODE_OUTPUT,
+    };
+    ESP_ERROR_CHECK(gpio_config(&wake_cfg));
+    gpio_set_level(WAKE_LED_GPIO, 0);   /* dark until the first wake */
 }
 
 static void rgb_set(uint8_t r, uint8_t g, uint8_t b)
@@ -623,10 +634,13 @@ static int watch_glimpse_sign;       /* drive sign toward the last glimpse */
 static float watch_glimpse_deg;      /* its degrees off boresight */
 
 /* The resting green, graded by arousal: a dim ember while the watcher
- * sleeps, full green awake. Every "settle back to normal" goes through
- * here so sleep and wakefulness read at a glance. */
+ * sleeps, full green awake — and the discrete orange wake LED agrees,
+ * on awake, off asleep, for sunlight the ember can't fight. Every
+ * "settle back to normal" goes through here so sleep and wakefulness
+ * read at a glance. */
 static void led_nominal(void)
 {
+    gpio_set_level(WAKE_LED_GPIO, watch_state != WATCH_OFF);
     if (watch_state == WATCH_OFF) {
         rgb_set(RGB_GREEN_DIM);
     } else {

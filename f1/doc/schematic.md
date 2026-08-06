@@ -75,6 +75,7 @@ the ESP32**, the reservoir stays **down in the cavity with the driver**.
 | Pack + (after switch) | INA219 VIN+ | red | shunt inserted in the pack + lead |
 | INA219 VIN− | 6V rail entry | red | run both legs up/down as a twisted pair |
 | 6V rail | GND rail | — | yellow power LED + 1 kΩ series (~3 mA), on the power veroboard after the shunt so the INA219 accounts for it |
+| ESP32 GPIO11 | GND | orange | wake LED + 1 kΩ series (~1.3 mA), on the shelf board: on = awake, off = asleep |
 | DRV8833 AOUT1/AOUT2 | right motor | red / black | soldered with polarity inverted |
 | DRV8833 BOUT1/BOUT2 | left motor | red / black | soldered with polarity inverted |
 
@@ -96,6 +97,7 @@ right = 5/4).
 | 8 | I2C SDA — QT chain: AMG8833 0x69, LSM6DSOX 0x6A, INA219 0x40 |
 | 9 | I2C SCL — QT chain as above |
 | 10 | DRV8833 sleep control |
+| 11 | wake LED — orange, 1 kΩ to GND on the shelf: on = awake, off = asleep |
 | 38 | onboard WS2812 RGB status LED — no wiring; DevKitC-1 v1.1 (v1.0 boards use 48) |
 
 ## Notes
