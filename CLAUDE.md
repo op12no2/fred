@@ -37,7 +37,7 @@ f1 splits this into `firmware/flash.sh` and `firmware/monitor.sh` — monitor at
 | 6, 7 | BIN1/BIN2 — left motor, inverted (PWM into DRV8833) |
 | 8, 9 | I2C SDA/SCL — QT chain: AMG8833 0x69, LSM6DSOX IMU 0x6A, INA219 power monitor 0x40 |
 | 10 | DRV8833 nSLEEP — drive high to enable the motor driver |
-| 38 | onboard WS2812 RGB status LED (red boot/fail, dim green asleep, green awake, blue performing/looking, amber whiff, violet held) |
+| 38 | onboard WS2812 RGB status LED (red boot/fail, dim green asleep, green awake, blue performing/looking, amber glimpse, violet held) |
 
 ## f2 GPIO map (from f2/doc/schematic.md)
 

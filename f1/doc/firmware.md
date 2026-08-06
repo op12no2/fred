@@ -25,7 +25,7 @@ stillness. The gyro's real gift is knowing when he's been picked up.
 - **Motor layer** — `drive(left, right)` with L/R trim, deadband remap,
   the USB-power guard (see schematic.md), and DRV8833 auto-sleep: the
   driver is awake only while a wheel is turning.
-- **Performances** — `p a` I'm-alive wiggle, `p h` hello (the whiff
+- **Performances** — `p a` I'm-alive wiggle, `p h` hello (the glimpse
   greeting: one gentle two-syllable swing, "hi-ya"), `p f` found-you
   shimmy; one function per performance, repertoire grows.
 - **RGB status** — red boot/fail, green well, blue performing, violet
@@ -113,14 +113,14 @@ fresh, stretched ×3 as the resting-voltage mood tires, clamped
 30 s–30 min) → the look is a gyro-metered full circle whose speed
 falls with mood and whose **gaze lingers** — passing warmth above the
 scene mean sheds sweep duty down to a crawl. Nudges pull the next look
-to ~20 s: a whiff (any pixel > background +1.5 °C, the zero-false-alarm
+to ~20 s: a glimpse (any pixel > background +1.5 °C, the zero-false-alarm
 threshold) or a set-down ("new spot"). Held aborts everything, as
-ever. Rest = green, looking = blue, and a whiff on arrival earns a
+ever. Rest = green, looking = blue, and a glimpse on arrival earns a
 beat of **amber** ("interesting") and — once per rest, re-armed by
 each look, or he's very predictable — a **hello** (`p h`, a gentle
 two-syllable swing — the coaxing precursor), after which the
 background reseeds (the wiggle moved the eye a little) and the
-visitor waits as wallpaper for the look. Later whiffs in the same
+visitor waits as wallpaper for the look. Later glimpses in the same
 rest get the amber beat only, still updating the remembered angle
 and pulling the look closer: noticed, said nothing. And sometimes
 the hello is **withheld anyway** — 15% fresh, rising to 60% on a
@@ -129,7 +129,7 @@ never a certainty and tiredness reads as standoffishness. The look now **ends fa
 showed**: the sweep remembers the yaw of peak gaze-drag and turns
 back to it by the shortest way round; if nothing rose above the gaze
 deadband the whole circle, it turns instead to the remembered angle of
-the whiff that called the look (degrees off the measured 3.2
+the glimpse that called the look (degrees off the measured 3.2
 boresight, mirrored sign as field-tested); if there was neither, he
 stops where the circle ended. The spin itself teaches which drive
 sign yaws which way, so the settle turn needs no calibration
@@ -148,19 +148,19 @@ full awake span and putting him to sleep earns a full sleep — the
 gesture genuinely matters, it never just pauses a timer. And the day's
 content gets a vote on bedtime: each wake grants two finite pots, a
 **second wind** (45 min fresh, ÷3 tired) that interesting events — a
-whiff at rest, a gaze the look confirmed — spend pushing sleep later,
+glimpse at rest, a gaze the look confirmed — spend pushing sleep later,
 and a **nothing doing** pot (30 min fresh, ×3 tired) that looks finding
 nothing at all spend pulling it closer. Each event takes a fixed
-fraction of its pot's *remainder*, so the first whiff of the evening is
+fraction of its pot's *remainder*, so the first glimpse of the evening is
 worth the most and the effect saturates geometrically — a busy room
 can't keep him up forever, and the same child genuinely can't keep a
-tired f1 up as long. Because whiffs are edge-triggered and the
+tired f1 up as long. Because glimpses are edge-triggered and the
 background reseeds after every look, parked warmth becomes wallpaper
 and stops paying: only *change* keeps him up. Staying up later drains
 the pack, which shrinks tomorrow's wind pot and stretches sleep — a
 big evening earns a long lie-in with no code saying so. Asleep is
 watcher-off: the ember LED, with pickup and the gesture still
-listening — sleep stays sacred, no whiff shortens it, or he was never
+listening — sleep stays sacred, no glimpse shortens it, or he was never
 really asleep and the wake gesture would cheapen. He won't cycle while held; "watch: nodding off" / "waking
 by himself" on the console, and each toggle prints its drawn span.
 Power-cycling returns him to deep sleep — the honest meaning of a

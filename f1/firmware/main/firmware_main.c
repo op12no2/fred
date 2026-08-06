@@ -69,7 +69,7 @@
 #define RGB_GREEN_DIM   0, 5, 0
 #define RGB_BLUE        0, 0, 48
 #define RGB_BLACK       0, 0, 0
-#define RGB_WHIFF       48, 24, 0
+#define RGB_GLIMPSE     48, 24, 0
 #define RGB_HELD        48, 0, 48
 
 #define MOTOR_L_IN1_CH  LEDC_CHANNEL_0
@@ -379,7 +379,7 @@ static void perform_alive(void)
     led_nominal();
 }
 
-/* "Hello": the greeting when the watcher whiffs warmth. */
+/* "Hello": the greeting when the watcher glimpses warmth. */
 static void perform_hello(void)
 {
     for (int i = 0; i < 1; i++) {
@@ -513,11 +513,11 @@ static void held_check(const float dps[3], const float g[3])
 /* Watcher: the resting heartbeat (w to toggle). Rest with the driver
  * asleep, learning a per-pixel background; look around (a gyro-metered
  * full circle) at log-normally random intervals whose median stretches
- * as the pack tires; a whiff of warmth earns a beat of amber and a
+ * as the pack tires; a glimpse of warmth earns a beat of amber and a
  * hello wiggle and pulls the next look closer (a set-down pulls it
  * too); the sweep itself slows when something warm crosses the view —
  * the gaze lingers — and ends by turning back, shortest way round, to
- * the warmest heading it saw, or to the whiff's angle if the sweep
+ * the warmest heading it saw, or to the glimpse's angle if the sweep
  * found nothing, or nowhere at all if there was neither. All knobs
  * below; thresholds cite f1/log/. */
 #define WATCH_LOOK_MED_S    180     /* median rest between looks, fresh pack */
@@ -549,15 +549,15 @@ static void held_check(const float dps[3], const float g[3])
                                        max-med runs ~0.9-1.4, gestures.log) */
 #define WATCH_TURN_DEG      360.0f
 #define WATCH_TURN_TIMEOUT_S 30
-#define WATCH_WHIFF_C       1.5f    /* px over background = something's there
+#define WATCH_GLIMPSE_C     1.5f    /* px over background = something's there
                                        (zero false alarms, quiet_room_sat) */
-#define WATCH_WHIFF_BEAT_MS 300     /* amber beat of noticing before the hello */
+#define WATCH_GLIMPSE_BEAT_MS 300     /* amber beat of noticing before the hello */
 #define WATCH_BG_ALPHA      0.02f   /* per-pixel background EMA */
 #define WATCH_BG_SETTLE_S   10      /* stillness before the background is
                                        trusted (quiet_room_sat) */
 #define WATCH_CENTER_COL    3.2f    /* boresight column (measured) */
 #define WATCH_COL_DEG       7.5f    /* camera columns to degrees */
-#define WATCH_SHRUG_FRESH   0.15f   /* odds the first whiff's hello is
+#define WATCH_SHRUG_FRESH   0.15f   /* odds the first glimpse's hello is
                                        withheld anyway — greeting is
                                        never a certainty */
 #define WATCH_SHRUG_TIRED   0.60f   /* ...on a flat pack: mostly can't
@@ -569,7 +569,7 @@ static void held_check(const float dps[3], const float g[3])
                                        tiredness shrinks it (/3 fully tired) */
 #define WATCH_WIND_FRAC     0.3f    /* each event takes this fraction of the
                                        pot's remainder: geometric, so the
-                                       first whiff of the evening matters
+                                       first glimpse of the evening matters
                                        most and a busy room can't run away */
 #define WATCH_DOZE_MAX_S    1800    /* nothing doing: total awake time boring
                                        looks can dock, fresh — tiredness
@@ -588,20 +588,20 @@ static float watch_yaw;
 static int watch_sign;
 static float watch_vrest;          /* resting pack volts, slow EMA */
 static bool watch_prev_held;
-static bool watch_whiff_prev;
+static bool watch_glimpse_prev;
 static bool watch_hello_done;      /* one hello per rest: stay surprising */
 static float watch_reorient_deg;   /* remaining degrees of the settle turn */
 static float watch_best_drag;      /* warmest moment of the sweep... */
 static float watch_best_yaw;       /* ...and the yaw it was seen at */
-static bool watch_whiff_pending;   /* a whiff called this look */
+static bool watch_glimpse_pending;   /* a glimpse called this look */
 static int64_t watch_cycle_at;     /* next autonomous sleep/wake toggle */
 static int64_t watch_woke_at;      /* start of this awake span */
 static float watch_wind_s;         /* second-wind pot left this span */
 static float watch_doze_s;         /* nothing-doing pot left this span */
 static bool watch_duty;            /* the rhythm: armed by the first wake,
                                       deep sleep from power-on until then */
-static int watch_whiff_sign;       /* drive sign toward the last whiff */
-static float watch_whiff_deg;      /* its degrees off boresight */
+static int watch_glimpse_sign;       /* drive sign toward the last glimpse */
+static float watch_glimpse_deg;      /* its degrees off boresight */
 
 /* The resting green, graded by arousal: a dim ember while the watcher
  * sleeps, full green awake. Every "settle back to normal" goes through
@@ -661,7 +661,7 @@ static float watch_draw_s(void)
 }
 
 /* The day's content gets a vote on bedtime. Interesting events — a
- * whiff at rest, a gaze the look confirmed — spend the second-wind pot
+ * glimpse at rest, a gaze the look confirmed — spend the second-wind pot
  * pushing sleep later; a look that found nothing at all spends the
  * nothing-doing pot pulling it closer. Each takes a fraction of what's
  * left in its pot, so the first event of the evening matters most and
@@ -713,7 +713,7 @@ static void watch_toggle(void)
         }
         watch_bg_seed = true;
         watch_prev_held = false;
-        watch_whiff_pending = false;
+        watch_glimpse_pending = false;
         watch_hello_done = false;
         watch_deadline = esp_timer_get_time() + watch_soon_us();
         watch_duty = true;   /* the rhythm starts with the first wake */
@@ -763,7 +763,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
     if (watch_prev_held) {
         watch_prev_held = false;
         watch_bg_seed = true;       /* new spot, new background */
-        watch_whiff_pending = false;
+        watch_glimpse_pending = false;
         watch_hello_done = false;
         watch_deadline = now + watch_soon_us();
         printf("watch: new spot, looking soon\n");
@@ -796,23 +796,23 @@ static void watch_step(const int16_t px[64], const float dps[3],
                 maxdev_i = i;
             }
         }
-        bool whiff = maxdev >= WATCH_WHIFF_C && now > watch_bg_ok_at;
-        if (maxdev < WATCH_WHIFF_C) {
+        bool glimpse = maxdev >= WATCH_GLIMPSE_C && now > watch_bg_ok_at;
+        if (maxdev < WATCH_GLIMPSE_C) {
             /* learn only quiet frames, so a visitor can't become wall */
             for (int i = 0; i < 64; i++) {
                 watch_bg[i] += WATCH_BG_ALPHA * (t[i] - watch_bg[i]);
             }
         }
-        if (whiff && !watch_whiff_prev) {
+        if (glimpse && !watch_glimpse_prev) {
             /* a beat of amber ("interesting"), and the warmth's angle
              * is remembered for the look's settle — but the hello only
              * once per rest, or he's very predictable */
             float off = (maxdev_i % 8) - WATCH_CENTER_COL;
             /* sign field-tested: he turned away from the first tester —
              * image columns run mirrored to the guess */
-            watch_whiff_sign = off > 0 ? -1 : 1;
-            watch_whiff_deg = fabsf(off) * WATCH_COL_DEG;
-            watch_whiff_pending = true;
+            watch_glimpse_sign = off > 0 ? -1 : 1;
+            watch_glimpse_deg = fabsf(off) * WATCH_COL_DEG;
+            watch_glimpse_pending = true;
             const char *say = "hello, ";
             if (watch_hello_done) {
                 say = "";
@@ -821,10 +821,10 @@ static void watch_step(const int16_t px[64], const float dps[3],
                 say = "can't be bothered, ";
                 watch_hello_done = true;   /* the shrug spends the hello */
             }
-            printf("watch: whiff (+%.1f C), %slooking soon\n", maxdev, say);
+            printf("watch: glimpse (+%.1f C), %slooking soon\n", maxdev, say);
             watch_bedtime_nudge(true);   /* someone appeared */
-            rgb_set(RGB_WHIFF);
-            vTaskDelay(pdMS_TO_TICKS(WATCH_WHIFF_BEAT_MS));
+            rgb_set(RGB_GLIMPSE);
+            vTaskDelay(pdMS_TO_TICKS(WATCH_GLIMPSE_BEAT_MS));
             if (!watch_hello_done) {
                 watch_hello_done = true;
                 perform_hello();        /* ends on green */
@@ -837,7 +837,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
                 watch_deadline = now + soon;
             }
         }
-        watch_whiff_prev = whiff;
+        watch_glimpse_prev = glimpse;
         if (now >= watch_deadline) {
             watch_yaw = 0;
             watch_sign = (esp_random() & 1) ? 1 : -1;
@@ -870,24 +870,24 @@ static void watch_step(const int16_t px[64], const float dps[3],
         watch_yaw += dps[2] * (1.0f / TICK_HZ);
         if (fabsf(watch_yaw) >= WATCH_TURN_DEG || now > watch_look_until) {
             /* circle done: face the best thing it showed — the warmest
-             * heading, or failing that the whiff that called the look */
+             * heading, or failing that the glimpse that called the look */
             float target = 0;
             bool have = false;
             if (watch_best_drag > 0) {
                 target = watch_best_yaw;
                 have = true;
                 watch_bedtime_nudge(true);    /* still there when he looked */
-            } else if (watch_whiff_pending) {
-                /* the whiff's angle, mapped into this spin's yaw frame */
+            } else if (watch_glimpse_pending) {
+                /* the glimpse's angle, mapped into this spin's yaw frame */
                 float ysign = watch_yaw >= 0 ? 1.0f : -1.0f;
-                target = (watch_whiff_sign == watch_sign ? ysign : -ysign)
-                         * watch_whiff_deg;
+                target = (watch_glimpse_sign == watch_sign ? ysign : -ysign)
+                         * watch_glimpse_deg;
                 have = true;
             } else {
-                watch_bedtime_nudge(false);   /* an empty circle no whiff
+                watch_bedtime_nudge(false);   /* an empty circle no glimpse
                                                  even called for */
             }
-            watch_whiff_pending = false;
+            watch_glimpse_pending = false;
             if (have) {
                 float delta = target - watch_yaw;   /* shortest way back */
                 while (delta > 180.0f) {
@@ -908,7 +908,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
                     drive(d * base, -d * base);
                     watch_state = WATCH_ORIENT;
                     printf("watch: turning %.0f deg back to %s\n", delta,
-                           watch_best_drag > 0 ? "the warmth" : "the whiff");
+                           watch_best_drag > 0 ? "the warmth" : "the glimpse");
                     break;
                 }
             }
