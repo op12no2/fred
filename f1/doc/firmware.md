@@ -271,7 +271,12 @@ Tuning happens against logs, not memory. `r` starts/stops a 10 Hz
 recording of everything — thermal frame, gyro/accel, volts/amps,
 commanded motor duties, held state — into a PSRAM ring (~1 h
 capacity); `d` dumps it as CSV over the console. Columns:
-`ms,left,right,volts,ma,held,gx,gy,gz,ax,ay,az,p0..p63`.
+`ms,left,right,volts,ma,held,gx,gy,gz,ax,ay,az,p0..p63`. The
+narration rides along: behaviour prints ("watch: almost went",
+"picked up!") also land in a timestamped note ring while recording,
+and `d` interleaves them into the CSV as `# <ms> <text>` lines — the
+story sits with the numbers, and `comment="#"` keeps pandas blind to
+it.
 
 Runs worth keeping move to `f1/log/` with descriptive names
 (`quiet_room_spin.log` — the 32-lap empty-room thermal panorama;

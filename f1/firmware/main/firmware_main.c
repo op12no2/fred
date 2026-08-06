@@ -4,6 +4,7 @@
  * idf.py monitor). */
 
 #include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -268,6 +269,44 @@ static void rgb_set(uint8_t r, uint8_t g, uint8_t b)
     esp_rom_delay_us(60);   /* latch gap so a back-to-back frame isn't swallowed */
 }
 
+/* Narration ("watch: almost went") prints to the console as ever, and
+ * while recording it also lands in a timestamped note ring that `d`
+ * interleaves into the CSV as `# <ms> <text>` comment lines — the
+ * story rides with the numbers, and the bench's
+ * pandas.read_csv(comment="#") never sees it. Console-only chatter
+ * (help, readings, cal) stays plain printf. */
+#define NOTE_N   256
+#define NOTE_LEN 80
+
+typedef struct { uint32_t ms; char text[NOTE_LEN]; } note_t;
+
+static note_t note_buf[NOTE_N];
+static int note_head, note_len;
+static volatile bool rec_on;
+
+static void wsay(const char *fmt, ...)
+{
+    char text[NOTE_LEN];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(text, sizeof(text), fmt, ap);
+    va_end(ap);
+    fputs(text, stdout);
+    if (rec_on) {
+        size_t len = strlen(text);
+        if (len > 0 && text[len - 1] == '\n') {
+            text[len - 1] = '\0';
+        }
+        note_t *n = &note_buf[note_head];
+        n->ms = esp_timer_get_time() / 1000;
+        memcpy(n->text, text, sizeof(n->text));
+        note_head = (note_head + 1) % NOTE_N;
+        if (note_len < NOTE_N) {
+            note_len++;
+        }
+    }
+}
+
 static void pwm_channel_init(ledc_channel_t ch, int gpio)
 {
     ledc_channel_config_t cfg = {
@@ -523,13 +562,13 @@ static void held_check(const float dps[3], const float g[3])
             sprint_armed = false;   /* each hold is a fresh ritual */
             drive(0, 0);   /* wheels stop, and the driver sleeps, in hands */
             rgb_set(RGB_HELD);   /* violet: airborne */
-            printf("picked up!\n");
+            wsay("picked up!\n");
         }
     } else if (g[2] < FLIP_AZ) {
         if (++flip_ticks >= FLIP_TICKS && !sprint_armed) {
             sprint_armed = true;
             rgb_set(RGB_BLUE);   /* blue in hand: armed */
-            printf("sprint: armed — set down to run\n");
+            wsay("sprint: armed — set down to run\n");
         }
         held_quiet_since = 0;   /* inverted stillness is not a set-down */
     } else if (gmag < HELD_QUIET_DPS && g[2] > HELD_DRIVE_AZ) {
@@ -541,7 +580,7 @@ static void held_check(const float dps[3], const float g[3])
             held = false;
             held_ticks = 0;
             led_nominal();
-            printf("set down\n");
+            wsay("set down\n");
             if (sprint_armed) {
                 sprint_armed = false;
                 gest_count = 0;        /* the flip spends this lift-down */
@@ -871,21 +910,21 @@ static void perform_sprint(void)
     watch_bg_seed = true;   /* wherever he ended up, the eye moved */
     led_nominal();
     if (!ok) {
-        printf("sprint: aborted\n");
+        wsay("sprint: aborted\n");
         return;
     }
     if (sprint_vmin < 90.0f) {
-        printf("sprint: peak spin %.0f dps, pack dipped to %.2f V\n",
+        wsay("sprint: peak spin %.0f dps, pack dipped to %.2f V\n",
                peak, sprint_vmin);
     } else {
-        printf("sprint: peak spin %.0f dps\n", peak);
+        wsay("sprint: peak spin %.0f dps\n", peak);
     }
     if (watch_state == WATCH_REST) {
         /* the breather: that genuinely cost him — the next look waits */
         int br = SPRINT_BREATHER_S / 2 +
                  (int)(esp_random() % (SPRINT_BREATHER_S + 1));
         watch_deadline = esp_timer_get_time() + (int64_t)br * 1000000LL;
-        printf("sprint: catching his breath (~%d s)\n", br);
+        wsay("sprint: catching his breath (~%d s)\n", br);
     }
 }
 
@@ -955,7 +994,7 @@ static void watch_bedtime_nudge(bool interesting)
     int64_t lo = watch_woke_at + WATCH_AWAKE_MIN_S * 1000000LL;
     int64_t hi = watch_woke_at + WATCH_AWAKE_MAX_S * 1000000LL;
     watch_cycle_at = at < lo ? lo : at > hi ? hi : at;
-    printf(interesting ? "watch: worth staying up for (+%.1f min)\n"
+    wsay(interesting ? "watch: worth staying up for (+%.1f min)\n"
                        : "watch: nothing doing (bedtime -%.1f min)\n",
            fabsf(take) / 60.0f);
 }
@@ -975,7 +1014,7 @@ static void watch_toggle(void)
         rgb_set(RGB_RED);
         vTaskDelay(pdMS_TO_TICKS(800));
         led_nominal();   /* back to sleep: the ember */
-        printf("watcher: off (asleep ~%.0f min)\n", span / 60.0f);
+        wsay("watcher: off (asleep ~%.0f min)\n", span / 60.0f);
     } else if (!amg_ok) {
         printf("no thermal camera, no watcher\n");
     } else {
@@ -1009,10 +1048,10 @@ static void watch_toggle(void)
         watch_wind_s = WATCH_WIND_MAX_S / watch_tired();
         watch_doze_s = WATCH_DOZE_MAX_S * watch_tired();
         watch_state = WATCH_REST;
-        printf("watcher: on (awake ~%.0f min; w or double lift-down "
+        wsay("watcher: on (awake ~%.0f min; w or double lift-down "
                "to stop)\n", span / 60.0f);
         if (watch_grumpy) {
-            printf("watch: woken too soon — grumpy until the first look\n");
+            wsay("watch: woken too soon — grumpy until the first look\n");
         }
         perform_awake();   /* the waking stretch; ends on full green */
     }
@@ -1034,14 +1073,14 @@ static void watch_settle(int64_t now)
         drive(-30, 30);
         vTaskDelay(pdMS_TO_TICKS(80));
         drive(0, 0);
-        printf("watch: huh — could have sworn\n");
+        wsay("watch: huh — could have sworn\n");
     }
     led_nominal();
     watch_bg_seed = true;
     float rest = watch_draw_s();
     watch_deadline = now + (int64_t)(rest * 1000000.0f);
     watch_state = WATCH_REST;
-    printf("watch: resting %.0f s (mood %.2f, %.2f V)\n",
+    wsay("watch: resting %.0f s (mood %.2f, %.2f V)\n",
            rest, watch_mood(), watch_vrest);
 }
 
@@ -1161,7 +1200,7 @@ static void coax_hop_start(int64_t now)
     drive(COAX_HOP_PCT, COAX_HOP_PCT);
     coax_until = now + ms * 1000LL;
     watch_state = WATCH_HOP;
-    printf("watch: a step closer (%d ms)\n", ms);
+    wsay("watch: a step closer (%d ms)\n", ms);
 }
 
 /* The look is over: if it ended facing warmth, check the facts before
@@ -1174,7 +1213,7 @@ static void watch_look_done(int64_t now)
         coax_hops = 0;
         coax_window(now, 0, COAX_DWELL_S);
         watch_state = WATCH_DWELL;
-        printf("watch: something there — checking\n");
+        wsay("watch: something there — checking\n");
         return;
     }
     watch_settle(now);
@@ -1199,7 +1238,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
         watch_glimpse_pending = false;
         watch_hello_done = false;
         watch_deadline = now + watch_soon_us();
-        printf("watch: new spot, looking soon\n");
+        wsay("watch: new spot, looking soon\n");
     }
 
     float t[64];
@@ -1227,7 +1266,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
             vTaskDelay(pdMS_TO_TICKS(WATCH_GLIMPSE_BEAT_MS));
             led_nominal();
             watch_bg_seed = true;   /* the recoil moved the eye */
-            printf("watch: flinch — felt that, looking soon\n");
+            wsay("watch: flinch — felt that, looking soon\n");
             watch_bedtime_nudge(true);
             int64_t soon = watch_soon_us();
             if (watch_deadline > now + soon) {
@@ -1276,7 +1315,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
                 say = "can't be bothered, ";
                 watch_hello_done = true;   /* the shrug spends the hello */
             }
-            printf("watch: glimpse (+%.1f C), %slooking soon\n", maxdev, say);
+            wsay("watch: glimpse (+%.1f C), %slooking soon\n", maxdev, say);
             watch_bedtime_nudge(true);   /* someone appeared */
             rgb_set(RGB_GLIMPSE);
             vTaskDelay(pdMS_TO_TICKS(WATCH_GLIMPSE_BEAT_MS));
@@ -1302,7 +1341,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
             watch_look_until = now + WATCH_TURN_TIMEOUT_S * 1000000LL;
             watch_state = WATCH_LOOK;
             rgb_set(RGB_BLUE);
-            printf("watch: looking around\n");
+            wsay("watch: looking around\n");
         }
         break;
     }
@@ -1364,7 +1403,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
                         now + WATCH_REORIENT_TIMEOUT_S * 1000000LL;
                     drive(d * base, -d * base);
                     watch_state = WATCH_ORIENT;
-                    printf("watch: turning %.0f deg back to %s\n", delta,
+                    wsay("watch: turning %.0f deg back to %s\n", delta,
                            watch_best_drag > 0 ? "the warmth" : "the glimpse");
                     break;
                 }
@@ -1386,7 +1425,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
          * spikes hard but never survives this */
         coax_accumulate(t, mean, now);
         if (coax_full) {
-            printf("watch: right on top of me — staying put\n");
+            wsay("watch: right on top of me — staying put\n");
             watch_settle(now);
             break;
         }
@@ -1399,15 +1438,15 @@ static void watch_step(const int16_t px[64], const float dps[3],
             watch_huh = true;   /* promised, gone: the head-shake */
             watch_settle(now);
         } else if (blob >= COAX_CEIL_PX) {
-            printf("watch: already close enough\n");
+            wsay("watch: already close enough\n");
             watch_settle(now);
         } else if (coax_lively < COAX_LIVELY) {
             /* the hot window ran hotter than the person; only movement
              * tells them apart — warm furniture gets watched, not met */
-            printf("watch: warm, but nobody home — not going over\n");
+            wsay("watch: warm, but nobody home — not going over\n");
             watch_settle(now);
         } else {
-            printf("watch: a visitor (%.0f px, %.0f%% there) — "
+            wsay("watch: a visitor (%.0f px, %.0f%% there) — "
                    "thinking about it\n", blob, presence * 100);
             coax_consider(now, presence, blob);
         }
@@ -1423,11 +1462,11 @@ static void watch_step(const int16_t px[64], const float dps[3],
         }
         if (watch_frand() >= p) {
             if (++coax_nerve >= COAX_NERVE_MAX) {
-                printf("watch: couldn't work up the nerve\n");
+                wsay("watch: couldn't work up the nerve\n");
                 watch_settle(now);
             } else {
                 coax_false_start();
-                printf("watch: almost went\n");
+                wsay("watch: almost went\n");
                 coax_until = now + COAX_NERVE_GAP_MS * 1000LL;
             }
             break;
@@ -1468,7 +1507,7 @@ static void watch_step(const int16_t px[64], const float dps[3],
     case WATCH_OBS: {
         coax_accumulate(t, mean, now);
         if (coax_full) {
-            printf("watch: right on top of me — staying put\n");
+            wsay("watch: right on top of me — staying put\n");
             watch_settle(now);
             break;
         }
@@ -1484,16 +1523,16 @@ static void watch_step(const int16_t px[64], const float dps[3],
         } else if (blob >= COAX_CEIL_PX) {
             /* arrived — a polite metre away, and the visitor becomes
              * wallpaper at the settle's reseed, so waving can't yo-yo him */
-            printf("watch: hi\n");
+            wsay("watch: hi\n");
             perform_found();
             watch_bedtime_nudge(true);   /* a visit that came off: the
                                             day's best event */
             watch_settle(now);
         } else if (blob < coax_prev_px - COAX_RETREAT_PX) {
-            printf("watch: backing away — won't chase\n");
+            wsay("watch: backing away — won't chase\n");
             watch_settle(now);
         } else if (coax_hops >= COAX_HOPS_MAX) {
-            printf("watch: came this far — your turn\n");
+            wsay("watch: came this far — your turn\n");
             watch_settle(now);
         } else {
             coax_consider(now, presence, blob);
@@ -1528,7 +1567,6 @@ typedef struct {
 
 static rec_t *rec_buf;
 static int rec_cap, rec_head, rec_len;
-static volatile bool rec_on;
 
 /* One 10 Hz heartbeat: read the IMU, run bump detection, then snapshot
  * everything for the recorder. */
@@ -1554,7 +1592,7 @@ static void tick_task(void *arg)
             perform_sprint();
         }
         if (watch_duty && !held && esp_timer_get_time() >= watch_cycle_at) {
-            printf(watch_state == WATCH_OFF ? "watch: waking by himself\n"
+            wsay(watch_state == WATCH_OFF ? "watch: waking by himself\n"
                                             : "watch: nodding off\n");
             watch_toggle();
         }
@@ -1621,8 +1659,18 @@ static void rec_dump(void)
         printf(",p%d", i);
     }
     printf("\n");
+    int nj = 0;
     for (int i = 0; i < rec_len; i++) {
         rec_t *r = &rec_buf[(rec_head - rec_len + i + rec_cap) % rec_cap];
+        /* the narration rides with the numbers, in time order */
+        while (nj < note_len) {
+            note_t *n = &note_buf[(note_head - note_len + nj + NOTE_N) % NOTE_N];
+            if (n->ms > r->ms) {
+                break;
+            }
+            printf("# %lu %s\n", (unsigned long)n->ms, n->text);
+            nj++;
+        }
         printf("%lu,%d,%d,%.2f,%.0f,%d,%d,%.1f,%.1f,%.1f,%.3f,%.3f,%.3f",
                (unsigned long)r->ms, r->left, r->right, r->volts, r->ma,
                r->held, r->ws,
@@ -1636,6 +1684,10 @@ static void rec_dump(void)
              * backtraces mid-line into the CSV (sprint.log, 20260806) */
             vTaskDelay(1);
         }
+    }
+    for (; nj < note_len; nj++) {
+        note_t *n = &note_buf[(note_head - note_len + nj + NOTE_N) % NOTE_N];
+        printf("# %lu %s\n", (unsigned long)n->ms, n->text);
     }
     printf("# %d records\n", rec_len);
 }
@@ -1803,6 +1855,8 @@ static void handle_line(char *line)
         } else {
             rec_head = 0;
             rec_len = 0;   /* each run starts fresh */
+            note_head = 0;
+            note_len = 0;
             rec_on = true;
             printf("recording at %d Hz (r to stop)\n", TICK_HZ);
         }
