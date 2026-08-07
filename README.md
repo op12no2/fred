@@ -1,1 +1,1 @@
-moved to https://github.com/op12no2/fredie
+moved to https://github.com/op12no2/freddie
